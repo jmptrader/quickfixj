@@ -19,14 +19,6 @@
 
 package quickfix.examples.banzai;
 
-import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Observable;
-import java.util.Observer;
-
-import javax.swing.SwingUtilities;
-
 import quickfix.Application;
 import quickfix.DefaultMessageFactory;
 import quickfix.DoNotSend;
@@ -72,6 +64,13 @@ import quickfix.field.Text;
 import quickfix.field.TimeInForce;
 import quickfix.field.TransactTime;
 
+import javax.swing.*;
+import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Observable;
+import java.util.Observer;
+
 public class BanzaiApplication implements Application {
     private final DefaultMessageFactory messageFactory = new DefaultMessageFactory();
     private OrderTableModel orderTableModel = null;
@@ -84,7 +83,7 @@ public class BanzaiApplication implements Application {
     static private final TwoWayMap sideMap = new TwoWayMap();
     static private final TwoWayMap typeMap = new TwoWayMap();
     static private final TwoWayMap tifMap = new TwoWayMap();
-    static private final HashMap<SessionID, HashSet<ExecID>> execIDs = new HashMap<SessionID, HashSet<ExecID>>();
+    static private final HashMap<SessionID, HashSet<ExecID>> execIDs = new HashMap<>();
 
     public BanzaiApplication(OrderTableModel orderTableModel,
             ExecutionTableModel executionTableModel) {
@@ -219,8 +218,8 @@ public class BanzaiApplication implements Application {
 
         if (fillSize.compareTo(BigDecimal.ZERO) > 0) {
             order.setOpen(order.getOpen() - (int) Double.parseDouble(fillSize.toPlainString()));
-            order.setExecuted(new Integer(message.getString(CumQty.FIELD)));
-            order.setAvgPx(new Double(message.getString(AvgPx.FIELD)));
+            order.setExecuted(Double.parseDouble(message.getString(CumQty.FIELD)));
+            order.setAvgPx(Double.parseDouble(message.getString(AvgPx.FIELD)));
         }
 
         OrdStatus ordStatus = (OrdStatus) message.getField(new OrdStatus());
@@ -253,7 +252,7 @@ public class BanzaiApplication implements Application {
             execution.setSymbol(message.getField(new Symbol()).getValue());
             execution.setQuantity(fillSize.intValue());
             if (message.isSetField(LastPx.FIELD)) {
-                execution.setPrice(new Double(message.getString(LastPx.FIELD)));
+                execution.setPrice(Double.parseDouble(message.getString(LastPx.FIELD)));
             }
             Side side = (Side) message.getField(new Side());
             execution.setSide(FIXSideToSide(side));
@@ -280,7 +279,7 @@ public class BanzaiApplication implements Application {
     private boolean alreadyProcessed(ExecID execID, SessionID sessionID) {
         HashSet<ExecID> set = execIDs.get(sessionID);
         if (set == null) {
-            set = new HashSet<ExecID>();
+            set = new HashSet<>();
             set.add(execID);
             execIDs.put(sessionID, set);
             return false;
@@ -302,18 +301,26 @@ public class BanzaiApplication implements Application {
 
     public void send(Order order) {
         String beginString = order.getSessionID().getBeginString();
-        if (beginString.equals(FixVersions.BEGINSTRING_FIX40))
-            send40(order);
-        else if (beginString.equals(FixVersions.BEGINSTRING_FIX41))
-            send41(order);
-        else if (beginString.equals(FixVersions.BEGINSTRING_FIX42))
-            send42(order);
-        else if (beginString.equals(FixVersions.BEGINSTRING_FIX43))
-            send43(order);
-        else if (beginString.equals(FixVersions.BEGINSTRING_FIX44))
-            send44(order);
-        else if (beginString.equals(FixVersions.BEGINSTRING_FIXT11))
-            send50(order);
+        switch (beginString) {
+            case FixVersions.BEGINSTRING_FIX40:
+                send40(order);
+                break;
+            case FixVersions.BEGINSTRING_FIX41:
+                send41(order);
+                break;
+            case FixVersions.BEGINSTRING_FIX42:
+                send42(order);
+                break;
+            case FixVersions.BEGINSTRING_FIX43:
+                send43(order);
+                break;
+            case FixVersions.BEGINSTRING_FIX44:
+                send44(order);
+                break;
+            case FixVersions.BEGINSTRING_FIXT11:
+                send50(order);
+                break;
+        }
     }
 
     public void send40(Order order) {
@@ -396,12 +403,17 @@ public class BanzaiApplication implements Application {
 
     public void cancel(Order order) {
         String beginString = order.getSessionID().getBeginString();
-        if (beginString.equals("FIX.4.0"))
-            cancel40(order);
-        else if (beginString.equals("FIX.4.1"))
-            cancel41(order);
-        else if (beginString.equals("FIX.4.2"))
-            cancel42(order);
+        switch (beginString) {
+            case "FIX.4.0":
+                cancel40(order);
+                break;
+            case "FIX.4.1":
+                cancel41(order);
+                break;
+            case "FIX.4.2":
+                cancel42(order);
+                break;
+        }
     }
 
     public void cancel40(Order order) {
@@ -439,12 +451,17 @@ public class BanzaiApplication implements Application {
 
     public void replace(Order order, Order newOrder) {
         String beginString = order.getSessionID().getBeginString();
-        if (beginString.equals("FIX.4.0"))
-            replace40(order, newOrder);
-        else if (beginString.equals("FIX.4.1"))
-            replace41(order, newOrder);
-        else if (beginString.equals("FIX.4.2"))
-            replace42(order, newOrder);
+        switch (beginString) {
+            case "FIX.4.0":
+                replace40(order, newOrder);
+                break;
+            case "FIX.4.1":
+                replace41(order, newOrder);
+                break;
+            case "FIX.4.2":
+                replace42(order, newOrder);
+                break;
+        }
     }
 
     public void replace40(Order order, Order newOrder) {
@@ -535,17 +552,13 @@ public class BanzaiApplication implements Application {
     }
 
     private static class ObservableLogon extends Observable {
-        private final HashSet<SessionID> set = new HashSet<SessionID>();
-
         public void logon(SessionID sessionID) {
-            set.add(sessionID);
             setChanged();
             notifyObservers(new LogonEvent(sessionID, true));
             clearChanged();
         }
 
         public void logoff(SessionID sessionID) {
-            set.remove(sessionID);
             setChanged();
             notifyObservers(new LogonEvent(sessionID, false));
             clearChanged();
@@ -562,7 +575,7 @@ public class BanzaiApplication implements Application {
 
         typeMap.put(OrderType.MARKET, new OrdType(OrdType.MARKET));
         typeMap.put(OrderType.LIMIT, new OrdType(OrdType.LIMIT));
-        typeMap.put(OrderType.STOP, new OrdType(OrdType.STOP));
+        typeMap.put(OrderType.STOP, new OrdType(OrdType.STOP_STOP_LOSS));
         typeMap.put(OrderType.STOP_LIMIT, new OrdType(OrdType.STOP_LIMIT));
 
         tifMap.put(OrderTIF.DAY, new TimeInForce(TimeInForce.DAY));

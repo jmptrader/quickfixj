@@ -34,6 +34,8 @@ import quickfix.mina.IoSessionResponder;
 import quickfix.mina.NetworkingOptions;
 import quickfix.mina.SessionConnector;
 
+import java.util.Optional;
+
 class InitiatorIoHandler extends AbstractIoHandler {
     private final Session quickfixSession;
     private final EventHandlingStrategy eventHandlingStrategy;
@@ -52,21 +54,23 @@ class InitiatorIoHandler extends AbstractIoHandler {
         NetworkingOptions networkingOptions = getNetworkingOptions();
         quickfixSession.setResponder(new IoSessionResponder(session,
                 networkingOptions.getSynchronousWrites(),
-                networkingOptions.getSynchronousWriteTimeout()));
-        log.info("MINA session created for " + quickfixSession.getSessionID() + ": local="
+                networkingOptions.getSynchronousWriteTimeout(),
+                quickfixSession.getMaxScheduledWriteRequests()));
+        quickfixSession.getLog().onEvent("MINA session created: local="
                 + session.getLocalAddress() + ", " + session.getClass() + ", remote="
                 + session.getRemoteAddress());
     }
 
     @Override
     protected void processMessage(IoSession protocolSession, Message message) throws Exception {
-        if (message.getHeader().getString(MsgType.FIELD).equals(MsgType.LOGON)) {
+        final Optional<String> msgTypeField = message.getHeader().getOptionalString(MsgType.FIELD);
+        if (msgTypeField.isPresent() && msgTypeField.get().equals(MsgType.LOGON)) {
             final SessionID sessionID = MessageUtils.getReverseSessionID(message);
             if (sessionID.isFIXT()) {
                 if (message.isSetField(DefaultApplVerID.FIELD)) {
                     final ApplVerID applVerID = new ApplVerID(message.getString(DefaultApplVerID.FIELD));
                     quickfixSession.setTargetDefaultApplicationVersionID(applVerID);
-                    log.info("Setting DefaultApplVerID (" + DefaultApplVerID.FIELD + "="
+                    quickfixSession.getLog().onEvent("Setting DefaultApplVerID (" + DefaultApplVerID.FIELD + "="
                             + applVerID.getValue() + ") from Logon");
                 }
             }

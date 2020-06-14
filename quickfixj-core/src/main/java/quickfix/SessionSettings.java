@@ -19,6 +19,11 @@
 
 package quickfix;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import quickfix.field.converter.BooleanConverter;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,7 +37,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -41,11 +47,6 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import quickfix.field.converter.BooleanConverter;
 
 /**
  * Settings for sessions. Settings are grouped by FIX version and target company
@@ -85,31 +86,45 @@ public class SessionSettings {
     // problems with moving configuration files between *nix and Windows.
     private static final String NEWLINE = "\r\n";
 
-    private Properties variableValues = System.getProperties();
+    private Properties variableValues;
 
     /**
      * Creates an empty session settings object.
      */
     public SessionSettings() {
+        this(System.getProperties());
+    }
+
+    /**
+     * Creates an empty session settings object with custom source of variable values in the settings.
+     * @param variableValues custom source of variable values in the settings
+     */
+    public SessionSettings(Properties variableValues) {
         sections.put(DEFAULT_SESSION_ID, new Properties());
+        this.variableValues = variableValues;
+    }
+
+    /**
+     * Loads session settings from a file with custom source of variable values in the settings.
+     *
+     * @param filename the path to the file containing the session settings
+     * @param variableValues custom source of variable values in the settings
+     * @throws quickfix.ConfigError when file could not be loaded
+     */
+    public SessionSettings(String filename, Properties variableValues) throws ConfigError {
+        this(variableValues);
+        loadFromFile(filename);
     }
 
     /**
      * Loads session settings from a file.
      *
      * @param filename the path to the file containing the session settings
+     * @throws quickfix.ConfigError when file could not be loaded
      */
     public SessionSettings(String filename) throws ConfigError {
         this();
-        InputStream in = getClass().getClassLoader().getResourceAsStream(filename);
-        if (in == null) {
-            try {
-                in = new FileInputStream(filename);
-            } catch (final IOException e) {
-                throw new ConfigError(e.getMessage());
-            }
-        }
-        load(in);
+        loadFromFile(filename);
     }
 
     /**
@@ -124,14 +139,25 @@ public class SessionSettings {
     }
 
     /**
+     * Loads session settings from an input stream with custom source of variable values in the settings.
+     *
+     * @param stream the input stream
+     * @param variableValues custom source of variable values in the settings
+     * @throws ConfigError
+     */
+    public SessionSettings(InputStream stream, Properties variableValues) throws ConfigError {
+        this(variableValues);
+        load(stream);
+    }
+
+    /**
      * Gets a string from the default section of the settings.
      *
      * @param key
      * @return the default string value
      * @throws ConfigError
-     * @throws FieldConvertError
      */
-    public String getString(String key) throws ConfigError, FieldConvertError {
+    public String getString(String key) throws ConfigError {
         return getString(DEFAULT_SESSION_ID, key);
     }
 
@@ -142,9 +168,8 @@ public class SessionSettings {
      * @param key the settings key
      * @return the string value for the setting
      * @throws ConfigError configuration error, probably a missing setting.
-     * @throws FieldConvertError error during field type conversion.
      */
-    public String getString(SessionID sessionID, String key) throws ConfigError, FieldConvertError {
+    public String getString(SessionID sessionID, String key) throws ConfigError {
         final String value = interpolate(getSessionProperties(sessionID).getProperty(key));
         if (value == null) {
             throw new ConfigError(key + " not defined");
@@ -193,7 +218,6 @@ public class SessionSettings {
      * Returns the defaults for the session-level settings.
      *
      * @return the default properties
-     * @throws ConfigError
      */
     public Properties getDefaultProperties() {
         try {
@@ -233,13 +257,37 @@ public class SessionSettings {
         }
     }
 
-    private Properties getOrCreateSessionProperties(SessionID sessionID) {
-        Properties p = sections.get(sessionID);
-        if (p == null) {
-            p = new Properties(sections.get(DEFAULT_SESSION_ID));
-            sections.put(sessionID, p);
+    /**
+     * Gets an int from the default section of settings.
+     *
+     * @param key
+     * @return the default value
+     * @throws ConfigError
+     * @throws FieldConvertError
+     */
+    public int getInt(String key) throws ConfigError, FieldConvertError {
+        return getInt(DEFAULT_SESSION_ID, key);
+    }
+
+    /**
+     * Get a settings value as an integer.
+     *
+     * @param sessionID the session ID
+     * @param key       the settings key
+     * @return the long integer value for the setting
+     * @throws ConfigError       configuration error, probably a missing setting.
+     * @throws FieldConvertError error during field type conversion.
+     */
+    public int getInt(SessionID sessionID, String key) throws ConfigError, FieldConvertError {
+        try {
+            return Integer.parseInt(getString(sessionID, key));
+        } catch (final NumberFormatException e) {
+            throw new FieldConvertError(e.getMessage());
         }
-        return p;
+    }
+
+    private Properties getOrCreateSessionProperties(SessionID sessionID) {
+        return sections.computeIfAbsent(sessionID, k -> new Properties(sections.get(DEFAULT_SESSION_ID)));
     }
 
     /**
@@ -344,20 +392,33 @@ public class SessionSettings {
         getOrCreateSessionProperties(sessionID).setProperty(key, BooleanConverter.convert(value));
     }
 
-    private final HashMap<SessionID, Properties> sections = new HashMap<SessionID, Properties>();
+    private final ConcurrentMap<SessionID, Properties> sections = new ConcurrentHashMap<>();
 
     public Iterator<SessionID> sectionIterator() {
-        final HashSet<SessionID> nondefaultSessions = new HashSet<SessionID>(sections.keySet());
+        final HashSet<SessionID> nondefaultSessions = new HashSet<>(sections.keySet());
         nondefaultSessions.remove(DEFAULT_SESSION_ID);
         return nondefaultSessions.iterator();
     }
 
+    private void loadFromFile(String filename) throws ConfigError {
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream(filename)) {
+            if (in != null) {
+                load(in);
+            } else {
+                try (InputStream in2 = new FileInputStream(filename)) {
+                    load(in2);
+                }
+            }
+        } catch (final IOException ex) {
+            throw new ConfigError(ex.getMessage());
+        }
+    }
+
     private void load(InputStream inputStream) throws ConfigError {
-        try {
+        try (final Reader reader = new InputStreamReader(inputStream)) {
             Properties currentSection = null;
             String currentSectionId = null;
             final Tokenizer tokenizer = new Tokenizer();
-            final Reader reader = new InputStreamReader(inputStream);
             Tokenizer.Token token = tokenizer.getToken(reader);
             while (token != null) {
                 if (token.getType() == Tokenizer.SECTION_TOKEN) {
@@ -381,7 +442,6 @@ public class SessionSettings {
             storeSection(currentSectionId, currentSection);
         } catch (final IOException e) {
             final ConfigError configError = new ConfigError(e.getMessage());
-            configError.fillInStackTrace();
             throw configError;
         }
     }
@@ -529,14 +589,14 @@ public class SessionSettings {
         }
     }
 
-    private final Pattern variablePattern = Pattern.compile("\\$\\{(.+?)}");
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile("\\$\\{(.+?)}");
 
     private String interpolate(String value) {
         if (value == null || value.indexOf('$') == -1) {
             return value;
         }
         final StringBuffer buffer = new StringBuffer();
-        final Matcher m = variablePattern.matcher(value);
+        final Matcher m = VARIABLE_PATTERN.matcher(value);
         while (m.find()) {
             if (m.start() > 0 && value.charAt(m.start() - 1) == '\\') {
                 continue;
@@ -700,7 +760,7 @@ public class SessionSettings {
         }
         final String multiplierCharacter = raw.contains("*") ? "\\*" : "x";
         final String[] data = raw.split(";");
-        final List<Integer> result = new ArrayList<Integer>();
+        final List<Integer> result = new ArrayList<>();
         for (final String multi : data) {
             final String[] timesSec = multi.split(multiplierCharacter);
             int times;
@@ -738,7 +798,7 @@ public class SessionSettings {
             return null;
         }
         final String[] data = raw.split(",");
-        final Set<InetAddress> result = new HashSet<InetAddress>();
+        final Set<InetAddress> result = new HashSet<>();
         for (final String multi : data) {
             try {
                 result.add(InetAddress.getByName(multi));

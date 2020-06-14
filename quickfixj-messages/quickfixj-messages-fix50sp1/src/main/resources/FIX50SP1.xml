@@ -5278,7 +5278,7 @@
       <value enum="M" description="MEDIUM"/>
     </field>
     <field number="26" name="IOIRefID" type="STRING"/>
-    <field number="27" name="IOIQty" type="STRING">
+    <field number="27" name="IOIQty" type="STRING" allowOtherValues="true">
       <value enum="S" description="SMALL"/>
       <value enum="M" description="MEDIUM"/>
       <value enum="L" description="LARGE"/>
@@ -6249,7 +6249,7 @@
       <value enum="c" description="REGULAR_ETH"/>
       <value enum="d" description="AUTOMATIC_EXECUTION"/>
       <value enum="e" description="AUTOMATIC_EXECUTION_ETH"/>
-      <value enum="f " description="FAST_MARKET_ETH"/>
+      <value enum="f" description="FAST_MARKET_ETH"/>
       <value enum="g" description="INACTIVE_ETH"/>
       <value enum="h" description="ROTATION"/>
       <value enum="i" description="ROTATION_ETH"/>

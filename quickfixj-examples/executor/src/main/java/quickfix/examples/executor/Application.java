@@ -19,14 +19,8 @@
 
 package quickfix.examples.executor;
 
-import java.math.BigDecimal;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.ConfigError;
 import quickfix.DataDictionaryProvider;
 import quickfix.DoNotSend;
@@ -62,6 +56,11 @@ import quickfix.field.Price;
 import quickfix.field.Side;
 import quickfix.field.Symbol;
 
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+
 public class Application extends quickfix.MessageCracker implements quickfix.Application {
     private static final String DEFAULT_MARKET_PRICE_KEY = "DefaultMarketPrice";
     private static final String ALWAYS_FILL_LIMIT_KEY = "AlwaysFillLimitOrders";
@@ -69,7 +68,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final boolean alwaysFillLimitOrders;
-    private final HashSet<String> validOrderTypes = new HashSet<String>();
+    private final HashSet<String> validOrderTypes = new HashSet<>();
     private MarketDataProvider marketDataProvider;
 
     public Application(SessionSettings settings) throws ConfigError, FieldConvertError {
@@ -93,7 +92,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
                     }
                 };
             } else {
-                log.warn("Ignoring " + DEFAULT_MARKET_PRICE_KEY + " since provider is already defined.");
+                log.warn("Ignoring {} since provider is already defined.", DEFAULT_MARKET_PRICE_KEY);
             }
         }
     }
@@ -415,11 +414,11 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
     }
 
     public OrderID genOrderID() {
-        return new OrderID(Integer.valueOf(++m_orderID).toString());
+        return new OrderID(Integer.toString(++m_orderID));
     }
 
     public ExecID genExecID() {
-        return new ExecID(Integer.valueOf(++m_execID).toString());
+        return new ExecID(Integer.toString(++m_execID));
     }
 
     /**

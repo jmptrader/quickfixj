@@ -19,6 +19,12 @@
 
 package quickfix.test.acceptance;
 
+import junit.framework.TestResult;
+import org.junit.Assert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import quickfix.test.util.ReflectionUtil;
+
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
@@ -31,21 +37,13 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import junit.framework.Assert;
-import junit.framework.TestResult;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import quickfix.test.util.ReflectionUtil;
-
 public class ExpectMessageStep implements TestStep {
     public static long TIMEOUT_IN_MS = 10000;
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final String data;
     private final Map<String, String> expectedFields;
-    private static final Pattern headerPattern = Pattern.compile("^E(\\d+),.*");
-    private static final Pattern fieldPattern = Pattern.compile("(\\d+)=([^\\001]+)\\001");
+    private static final Pattern HEADER_PATTERN = Pattern.compile("^E(\\d+),.*");
+    private static final Pattern FIELD_PATTERN = Pattern.compile("(\\d+)=([^\\001]+)\\001");
     private int clientId = 0;
     private static final int heartBeatOverride;
 
@@ -56,7 +54,7 @@ public class ExpectMessageStep implements TestStep {
 
     public ExpectMessageStep(String data) {
         this.data = data;
-        Matcher headerMatcher = headerPattern.matcher(data);
+        Matcher headerMatcher = HEADER_PATTERN.matcher(data);
         if (headerMatcher.matches()) {
             clientId = Integer.parseInt(headerMatcher.group(1));
         } else {
@@ -66,8 +64,8 @@ public class ExpectMessageStep implements TestStep {
     }
 
     private Map<String, String> simpleParse(String data) {
-        HashMap<String, String> fields = new HashMap<String, String>();
-        Matcher fieldMatcher = fieldPattern.matcher(data);
+        HashMap<String, String> fields = new HashMap<>();
+        Matcher fieldMatcher = FIELD_PATTERN.matcher(data);
         while (fieldMatcher.find()) {
             fields.put(fieldMatcher.group(1), fieldMatcher.group(2));
         }
@@ -83,7 +81,7 @@ public class ExpectMessageStep implements TestStep {
             final ThreadMXBean bean = ManagementFactory.getThreadMXBean();
             long[] threadIds = bean.findDeadlockedThreads();
 
-            final List<String> deadlockedThreads = new ArrayList<String>();
+            final List<String> deadlockedThreads = new ArrayList<>();
             if (threadIds != null) {
                 for (long threadId : threadIds) {
                     final ThreadInfo threadInfo = bean.getThreadInfo(threadId);
@@ -104,7 +102,7 @@ public class ExpectMessageStep implements TestStep {
         assertMessageEqual(actualFields);
     }
 
-    private static final HashSet<String> timeFields = new HashSet<String>();
+    private static final HashSet<String> timeFields = new HashSet<>();
 
     static {
         timeFields.add("52");
@@ -115,19 +113,19 @@ public class ExpectMessageStep implements TestStep {
     private void assertMessageEqual(Map<String, String> actualFields) {
         Assert.assertEquals("wrong msg type", expectedFields.get("35"), actualFields.get("35"));
         for (Map.Entry<String, String> entry : actualFields.entrySet()) {
-            Object key = entry.getKey();
+            String key = entry.getKey();
             if (timeFields.contains(key) || key.equals("10") || key.equals("9")) {
                 continue;
             }
             if (expectedFields.get("108") != null && heartBeatOverride >= 0) {
                 continue;
             }
-            if (key.equals("58")) {
+            if (!expectedFields.containsKey(key)) {
+                Assert.fail("Unexpected field " + key + ", value=" + entry.getValue());
+            } else if (key.equals("58")) {
                 Assert.assertTrue("field " + key + " not equal: actual=" + entry.getValue()
                         + ",expected(prefix)=" + expectedFields.get(key),
                         entry.getValue().startsWith(expectedFields.get(key)));
-            } else if (!expectedFields.containsKey(key)) {
-                Assert.fail("Unexpected field " + key + ",value=" + entry.getValue());
             } else {
                 Assert.assertEquals("field " + key + " not equal: ", expectedFields.get(key), entry
                         .getValue());

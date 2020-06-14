@@ -19,14 +19,8 @@
 
 package quickfix.test.acceptance.timer;
 
-import java.util.HashMap;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.CountDownLatch;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.Application;
 import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
@@ -42,7 +36,7 @@ import quickfix.MessageCracker;
 import quickfix.MessageStoreFactory;
 import quickfix.RejectLogon;
 import quickfix.RuntimeError;
-import quickfix.ScreenLogFactory;
+import quickfix.SLF4JLogFactory;
 import quickfix.SessionID;
 import quickfix.SessionNotFound;
 import quickfix.SessionSettings;
@@ -50,6 +44,11 @@ import quickfix.SocketInitiator;
 import quickfix.UnsupportedMessageType;
 import quickfix.fix44.ListStatusRequest;
 import quickfix.fix44.TestRequest;
+
+import java.util.HashMap;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * @author <a href="mailto:jhensley@bonddesk.com">John Hensley</a>
@@ -88,11 +87,11 @@ public class TimerTestClient extends MessageCracker implements Application {
     }
 
     public void run() throws ConfigError, SessionNotFound, InterruptedException {
-        HashMap<Object, Object> defaults = new HashMap<Object, Object>();
+        HashMap<Object, Object> defaults = new HashMap<>();
         defaults.put("ConnectionType", "initiator");
         defaults.put("HeartBtInt", "2");
         defaults.put("SocketConnectHost", "localhost");
-        defaults.put("SocketConnectPort", "9888");
+        defaults.put("SocketConnectPort", "19888");
         defaults.put("SocketTcpNoDelay", "Y");
         defaults.put("StartTime", "00:00:00");
         defaults.put("EndTime", "00:00:00");
@@ -108,7 +107,7 @@ public class TimerTestClient extends MessageCracker implements Application {
 
         MessageStoreFactory storeFactory = new MemoryStoreFactory();
         Initiator initiator = new SocketInitiator(this, storeFactory, settings,
-                new ScreenLogFactory(settings), new DefaultMessageFactory());
+                new SLF4JLogFactory(settings), new DefaultMessageFactory());
         initiator.start();
 
         try {

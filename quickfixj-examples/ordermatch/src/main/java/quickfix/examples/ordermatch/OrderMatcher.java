@@ -23,15 +23,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 public class OrderMatcher {
-    private final HashMap<String, Market> markets = new HashMap<String, Market>();
+    private final HashMap<String, Market> markets = new HashMap<>();
 
     private Market getMarket(String symbol) {
-        Market m = markets.get(symbol);
-        if (m == null) {
-            m = new Market();
-            markets.put(symbol, m);
-        }
-        return m;
+        return markets.computeIfAbsent(symbol, k -> new Market());
     }
 
     public boolean insert(Order order) {

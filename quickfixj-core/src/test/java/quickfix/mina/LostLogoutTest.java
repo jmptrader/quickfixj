@@ -1,9 +1,6 @@
 package quickfix.mina;
 
-import static org.junit.Assert.assertNotNull;
-
 import org.junit.Test;
-
 import quickfix.Application;
 import quickfix.DefaultMessageFactory;
 import quickfix.DoNotSend;
@@ -13,7 +10,7 @@ import quickfix.IncorrectTagValue;
 import quickfix.MemoryStoreFactory;
 import quickfix.Message;
 import quickfix.RejectLogon;
-import quickfix.ScreenLogFactory;
+import quickfix.SLF4JLogFactory;
 import quickfix.Session;
 import quickfix.SessionID;
 import quickfix.SessionSettings;
@@ -24,6 +21,8 @@ import quickfix.field.Headline;
 import quickfix.field.MsgType;
 import quickfix.fix44.News;
 
+import static org.junit.Assert.assertNotNull;
+
 /**
  * QFJ-790
  *
@@ -32,12 +31,12 @@ import quickfix.fix44.News;
  * doesn't get propagated to the application layer.
  * Important information, like logout reason, will not
  * be available to the application.
- * 
- * The source of this problem lies in inconsistent signalling 
+ *
+ * The source of this problem lies in inconsistent signalling
  * between the mina thread and the processing thread (QFJ
  * Message Processor) which leads to random or incorrect
  * behaviour.
- * 
+ *
  * The best way to fix this issue would be to signal the
  * end of a TCP/IP stream to the QFJ Message Processor
  * through the message queue instead of polling the
@@ -70,10 +69,10 @@ public class LostLogoutTest {
         // send logout request from client to server and close the socket
         client.sendLogoutAndDisconnect();
 
-        // give the server plenty of time to process the logout request 
+        // give the server plenty of time to process the logout request
         Thread.sleep(3000);
 
-        // verify if the server received the logout message via the fromAdmin() call-back 
+        // verify if the server received the logout message via the fromAdmin() call-back
         System.out.println("EXPECTED LOGOUT MESSAGE FROM CLIENT: " + logoutMessage);
         try {
             assertNotNull("Logout message from client lost", logoutMessage);
@@ -84,7 +83,7 @@ public class LostLogoutTest {
     }
 
     /*
-     * The server app is a simple FIX 4.4 acceptor. 
+     * The server app is a simple FIX 4.4 acceptor.
      */
     private class ServerApp implements Application {
         private SocketAcceptor acceptor = null;
@@ -103,7 +102,7 @@ public class LostLogoutTest {
             settings.setString(sid, "TargetCompID", sid.getTargetCompID());
 
             acceptor = new SocketAcceptor(this, new MemoryStoreFactory(), settings,
-                    new ScreenLogFactory(), new DefaultMessageFactory());
+                    new SLF4JLogFactory(new SessionSettings()), new DefaultMessageFactory());
             acceptor.start();
             Thread.sleep(1000);
         }
@@ -121,7 +120,7 @@ public class LostLogoutTest {
         }
 
         /*
-         * Save the logout message received from client.  
+         * Save the logout message received from client.
          */
         public void fromAdmin(Message message, SessionID sessionId) throws FieldNotFound,
                 IncorrectDataFormat, IncorrectTagValue, RejectLogon {
@@ -180,7 +179,7 @@ public class LostLogoutTest {
             settings.setString(sid, "TargetCompID", sid.getTargetCompID());
 
             initiator = new SocketInitiator(this, new MemoryStoreFactory(), settings,
-                    new ScreenLogFactory(), new DefaultMessageFactory());
+                    new SLF4JLogFactory(new SessionSettings()), new DefaultMessageFactory());
             initiator.start();
             session = Session.lookupSession(sid);
         }

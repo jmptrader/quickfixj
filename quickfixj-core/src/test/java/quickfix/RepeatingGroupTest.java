@@ -19,8 +19,10 @@
 
 package quickfix;
 
-import junit.framework.Assert;
-import junit.framework.TestCase;
+import org.junit.Assert;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import org.junit.Test;
 import quickfix.field.BeginString;
 import quickfix.field.LegSymbol;
 import quickfix.field.OrderID;
@@ -28,8 +30,9 @@ import quickfix.field.SessionRejectReason;
 import quickfix.field.SettlDate2;
 import quickfix.field.Symbol;
 import quickfix.fix44.Quote;
+import quickfix.fix50sp2.QuoteRequest;
 
-public class RepeatingGroupTest extends TestCase {
+public class RepeatingGroupTest {
 
     // In this testcase we use only FIX4.4 message, but we could use the others
     // FIX version. Indeed the group
@@ -42,6 +45,7 @@ public class RepeatingGroupTest extends TestCase {
         return grp;
     }
 
+    @Test
     public void testSettingGettingGroupWithStandardFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -62,6 +66,7 @@ public class RepeatingGroupTest extends TestCase {
         return grp;
     }
 
+    @Test
     public void testSettingGettingGroupWithCustomFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -84,6 +89,7 @@ public class RepeatingGroupTest extends TestCase {
         return grp;
     }
 
+    @Test
     public void testSettingGettingGroupWithCustomAndStandardFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -123,25 +129,26 @@ public class RepeatingGroupTest extends TestCase {
         return gNoRelatedSym;
     }
 
-    private quickfix.fix50.QuoteRequest.NoRelatedSym buildNestedGroupWithStandardFieldsFIX50(
+    private quickfix.fix50sp2.QuoteRequest.NoRelatedSym buildNestedGroupWithStandardFieldsFIX50SP2(
             String settingValue) {
         // The root group
-        final quickfix.fix50.QuoteRequest.NoRelatedSym gNoRelatedSym = new quickfix.fix50.QuoteRequest.NoRelatedSym();
+        final quickfix.fix50sp2.QuoteRequest.NoRelatedSym gNoRelatedSym = new quickfix.fix50sp2.QuoteRequest.NoRelatedSym();
 
         // The nested group
-        final quickfix.fix50.QuoteRequest.NoRelatedSym.NoLegs nestedgroup = new quickfix.fix50.QuoteRequest.NoRelatedSym.NoLegs();
+        final quickfix.fix50sp2.QuoteRequest.NoRelatedSym.NoLegs nestedgroup = new quickfix.fix50sp2.QuoteRequest.NoRelatedSym.NoLegs();
         nestedgroup.setField(new LegSymbol(settingValue));
         gNoRelatedSym.addGroup(nestedgroup);
 
         // Adding a second fake nested group to avoid being the case of having
         // one element which is not relevant :-)
-        final quickfix.fix50.QuoteRequest.NoRelatedSym.NoLegs oneMoreNestedgroup = new quickfix.fix50.QuoteRequest.NoRelatedSym.NoLegs();
+        final quickfix.fix50sp2.QuoteRequest.NoRelatedSym.NoLegs oneMoreNestedgroup = new quickfix.fix50sp2.QuoteRequest.NoRelatedSym.NoLegs();
         oneMoreNestedgroup.setField(new LegSymbol("Donald"));
         gNoRelatedSym.addGroup(oneMoreNestedgroup);
 
         return gNoRelatedSym;
     }
 
+    @Test
     public void testSettingGettingNestedGroupWithStandardFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -176,6 +183,7 @@ public class RepeatingGroupTest extends TestCase {
         return gNoRelatedSym;
     }
 
+    @Test
     public void testSettingGettingNestedGroupWithCustomFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -213,6 +221,7 @@ public class RepeatingGroupTest extends TestCase {
         return gNoRelatedSym;
     }
 
+    @Test
     public void testSettingGettingNestedGroupWithCustomAndStandardFields() throws FieldNotFound {
         final String settingValue = "SETTING_VALUE";
 
@@ -234,6 +243,7 @@ public class RepeatingGroupTest extends TestCase {
                 .getValue());
     }
 
+    @Test
     // Testing group re-usability when setting values
     public void testSettingGettingGroupByReusingGroup() throws FieldNotFound {
         // The root group
@@ -294,6 +304,7 @@ public class RepeatingGroupTest extends TestCase {
         return message;
     }
 
+    @Test
     public void testValidationWithNestedGroupAndStandardFields() throws InvalidMessage {
         final quickfix.fix44.QuoteRequest quoteRequest = new quickfix.fix44.QuoteRequest();
 
@@ -305,7 +316,6 @@ public class RepeatingGroupTest extends TestCase {
         gNoRelatedSym.setField(new Symbol("SYM00"));
 
         quoteRequest.addGroup(gNoRelatedSym);
-
         quoteRequest.addGroup(gNoRelatedSym);
 
         final String sourceFIXString = quoteRequest.toString();
@@ -320,35 +330,34 @@ public class RepeatingGroupTest extends TestCase {
         assertEquals("Message validation failed", sourceFIXString, validateFIXString);
     }
 
+    @Test
     public void testValidationWithNestedGroupAndStandardFieldsFIX50SP2() throws InvalidMessage, ConfigError {
-        final quickfix.fix50.QuoteRequest quoteRequest = new quickfix.fix50.QuoteRequest();
+        final quickfix.fix50sp2.QuoteRequest quoteRequest = new quickfix.fix50sp2.QuoteRequest();
 
         final quickfix.field.QuoteReqID gQuoteReqID = new quickfix.field.QuoteReqID();
         gQuoteReqID.setValue("12342");
         quoteRequest.setField(gQuoteReqID);
 
-        final quickfix.fix50.QuoteRequest.NoRelatedSym gNoRelatedSym = buildNestedGroupWithStandardFieldsFIX50("DEFAULT_VALUE");
+        final quickfix.fix50sp2.QuoteRequest.NoRelatedSym gNoRelatedSym = buildNestedGroupWithStandardFieldsFIX50SP2("DEFAULT_VALUE");
         gNoRelatedSym.setField(new Symbol("SYM00"));
         gNoRelatedSym.setField(new SettlDate2("20120801"));
 
         quoteRequest.addGroup(gNoRelatedSym);
-
         quoteRequest.addGroup(gNoRelatedSym);
 
         final String sourceFIXString = quoteRequest.toString();
-        final DataDictionary fix50DataDictionary = new DataDictionary("FIX50SP2.xml");
-        final quickfix.fix50.QuoteRequest validatedMessage = (quickfix.fix50.QuoteRequest) buildValidatedMessage(
-                sourceFIXString, fix50DataDictionary);
-        String validateFIXString = null;
-        if (validatedMessage != null) {
-            validateFIXString = validatedMessage.toString();
-        }
+        final DataDictionary fix50sp2DataDictionary = new DataDictionary("FIX50SP2.xml");
+        final quickfix.fix50sp2.QuoteRequest validatedMessage = (quickfix.fix50sp2.QuoteRequest) messageFactory.create(FixVersions.FIX50SP2, QuoteRequest.MSGTYPE);
+        validatedMessage.fromString(sourceFIXString, fix50sp2DataDictionary, true);
+
+        String validateFIXString = validatedMessage.toString();
 
         assertEquals("Message validation failed", sourceFIXString, validateFIXString);
         assertEquals(2, validatedMessage.getGroupCount(gNoRelatedSym.getFieldTag()));
     }
 
-    public void testValidationWithNestedGroupAndStandardFieldsWithoutDelimiter() {
+    @Test
+    public void testValidationWithNestedGroupAndStandardFieldsWithoutDelimiter() throws InvalidMessage {
         final quickfix.fix44.QuoteRequest quoteRequest = new quickfix.fix44.QuoteRequest();
 
         final quickfix.field.QuoteReqID gQuoteReqID = new quickfix.field.QuoteReqID();
@@ -358,19 +367,15 @@ public class RepeatingGroupTest extends TestCase {
         final quickfix.fix44.QuoteRequest.NoRelatedSym gNoRelatedSym = buildNestedGroupWithStandardFields("DEFAULT_VALUE");
 
         quoteRequest.addGroup(gNoRelatedSym);
-
         quoteRequest.addGroup(gNoRelatedSym);
 
         final String sourceFIXString = quoteRequest.toString();
 
-        try {
-            buildValidatedMessage(sourceFIXString, defaultDataDictionary);
-            fail("No Exception thrown");
-        } catch (final InvalidMessage e) {
-            // We expect that Exception did happen, so we don't do anything.
-        }
+        Message buildValidatedMessage = buildValidatedMessage(sourceFIXString, defaultDataDictionary);
+        assertEquals("The group 146 must set the delimiter field 55", buildValidatedMessage.getException().getMessage());
     }
 
+    @Test
     public void testGroupFieldsOrderWithCustomDataDictionary() throws InvalidMessage {
         final quickfix.fix44.QuoteRequest quoteRequest = new quickfix.fix44.QuoteRequest();
 
@@ -405,15 +410,12 @@ public class RepeatingGroupTest extends TestCase {
 
         assertNull("Invalid message", validatedMessage.getException());
 
-        String validatedFIXString = null;
-        if (validatedMessage != null) {
-            validatedFIXString = validatedMessage.toString();
-        }
-
+        String validatedFIXString = validatedMessage.toString();
         assertEquals("Message validation failed",
                 MessageUtils.checksum(sourceFIXString), MessageUtils.checksum(validatedFIXString));
     }
 
+    @Test
     public void testOutOfOrderGroupMembersDelimiterField() throws Exception {
         final Message m = new Message(
             "8=FIX.4.4\0019=0\00135=D\00134=2\00149=TW\00152=<TIME>\00156=ISLD\00111=ID\001" +
@@ -431,6 +433,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testIgnoreOutOfOrderGroupMembersDelimiterField() throws Exception {
         final Message m = new Message(
             "8=FIX.4.4\0019=0\00135=D\00134=2\00149=TW\00152=<TIME>\00156=ISLD\00111=ID\001" +
@@ -448,6 +451,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testOutOfOrderGroupMembers() throws Exception {
         final Message m = new Message(
             "8=FIX.4.4\0019=0\00135=D\00134=2\00149=TW\00152=20080203-00:29:51.453\00156=ISLD\001" +
@@ -465,6 +469,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testIgnoreOutOfOrderGroupMembers() throws Exception {
         final Message m = new Message(
             "8=FIX.4.4\0019=0\00135=D\00134=2\00149=TW\00152=20080203-00:29:51.453\00156=ISLD\001" +
@@ -478,6 +483,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testRequiredGroupMembers() throws Exception {
         // Missing group tag 304
         final Message m = new Message("8=FIX.4.4\0019=0\00135=i\00134=2\00149=TW\001" +
@@ -494,6 +500,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testWrongGroupCount() throws Exception {
         // Excessive group counts in nested group
         final Message m = new Message("8=FIX.4.4\0019=0\00135=i\00134=2\00149=TW\001" +
@@ -512,6 +519,7 @@ public class RepeatingGroupTest extends TestCase {
         }
     }
 
+    @Test
     public void testInvalidEnumFieldInGroup() throws Exception {
         // Excessive group counts
         final Message m = new Message(
@@ -523,10 +531,11 @@ public class RepeatingGroupTest extends TestCase {
             Assert.fail("No exception");
         } catch (final IncorrectTagValue e) {
             // expected
-            assertEquals(385, e.field);
+            assertEquals(385, e.getField());
         }
     }
 
+    @Test
     public void testSettingGettingGroupWithStandardFieldsInHeader() throws Exception {
         final Message m = new Message(
             "8=FIX.4.4\0019=87\00135=0\00134=2\00152=20080203-00:29:51.453\00156=ISLD\001" +

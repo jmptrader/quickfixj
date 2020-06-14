@@ -34,6 +34,7 @@ public /*abstract*/ class Field<T> implements Serializable {
     private T object;
     private boolean isCalculated = false;
     private String data;
+    private byte[] dataBytes;
 
     public Field(int field, T object) {
         this.tag = field;
@@ -79,17 +80,21 @@ public /*abstract*/ class Field<T> implements Serializable {
     }
 
     /**
-     * Return's the formatted field (tag=value<SOH>)
+     * Returns the formatted field (tag=value<SOH>)
      *
      * @return the formatted field
      */
+    @Override
     public String toString() {
         calculate();
         return data;
     }
 
     /*package*/ void toString(StringBuilder buffer) {
-        buffer.append(tag).append('=').append(objectAsString());
+        if (isCalculated)
+            buffer.append(data);
+        else
+            buffer.append(tag).append('=').append(objectAsString());
     }
 
     protected String objectAsString() {
@@ -115,7 +120,7 @@ public /*abstract*/ class Field<T> implements Serializable {
      */
     /*package*/ int getLength() {
         calculate();
-        return MessageUtils.length(CharsetSupport.getCharsetInstance(), data) + 1;
+        return (dataBytes != null ? dataBytes.length : data.length()) + 1;
     }
 
     /**
@@ -126,18 +131,20 @@ public /*abstract*/ class Field<T> implements Serializable {
      */
     /*package*/ int getChecksum() {
         calculate();
-        return (MessageUtils.checksum(CharsetSupport.getCharsetInstance(), data, false) + 1) & 0xFF;
+        return ((dataBytes != null
+                ? MessageUtils.checksum(dataBytes, false)
+                : MessageUtils.checksum(CharsetSupport.getCharsetInstance(), data, false)) + 1) & 0xFF;
     }
 
     private void calculate() {
         if (isCalculated) {
             return;
         }
-
         StringBuilder buffer = new StringBuilder();
         toString(buffer);
         data = buffer.toString();
-
+        if (!CharsetSupport.isStringEquivalent(CharsetSupport.getCharsetInstance()))
+            dataBytes = data.getBytes(CharsetSupport.getCharsetInstance());
         isCalculated = true;
     }
 

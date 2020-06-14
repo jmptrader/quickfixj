@@ -19,6 +19,20 @@
 
 package quickfix.mina;
 
+import org.apache.mina.core.filterchain.IoFilterChainBuilder;
+import org.apache.mina.core.session.IoSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import quickfix.ConfigError;
+import quickfix.Connector;
+import quickfix.ExecutorFactory;
+import quickfix.FieldConvertError;
+import quickfix.Session;
+import quickfix.SessionFactory;
+import quickfix.SessionID;
+import quickfix.SessionSettings;
+import quickfix.field.converter.IntConverter;
+
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.IOException;
@@ -29,25 +43,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.mina.core.filterchain.IoFilterChainBuilder;
-import org.apache.mina.core.session.IoSession;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import quickfix.ConfigError;
-import quickfix.Connector;
-import quickfix.FieldConvertError;
-import quickfix.Session;
-import quickfix.SessionFactory;
-import quickfix.SessionID;
-import quickfix.SessionSettings;
-import quickfix.field.converter.IntConverter;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.mina.core.future.CloseFuture;
+import org.apache.mina.core.service.IoService;
 
 /**
  * An abstract base class for acceptors and initiators. Provides support for common functionality and also serves as an
@@ -56,19 +61,23 @@ import quickfix.field.converter.IntConverter;
 public abstract class SessionConnector implements Connector {
     protected static final int DEFAULT_QUEUE_CAPACITY = 10000;
     public static final String SESSIONS_PROPERTY = "sessions";
-    public final static String QF_SESSION = "QF_SESSION";
+    public static final String QF_SESSION = "QF_SESSION";
+    public static final String QFJ_RESET_IO_CONNECTOR = "QFJ_RESET_IO_CONNECTOR";
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
     protected final PropertyChangeSupport propertyChangeSupport = new PropertyChangeSupport(this);
 
-    private Map<SessionID, Session> sessions = Collections.emptyMap();
+    private final Map<SessionID, Session> sessions = new ConcurrentHashMap<>();
     private final SessionSettings settings;
     private final SessionFactory sessionFactory;
-    private final static ScheduledExecutorService scheduledExecutorService = Executors
+    private static final ScheduledExecutorService SCHEDULED_EXECUTOR = Executors
             .newSingleThreadScheduledExecutor(new QFTimerThreadFactory());
     private ScheduledFuture<?> sessionTimerFuture;
     private IoFilterChainBuilder ioFilterChainBuilder;
+
+    protected Executor longLivedExecutor;
+    protected Executor shortLivedExecutor;
 
     public SessionConnector(SessionSettings settings, SessionFactory sessionFactory) throws ConfigError {
         this.settings = settings;
@@ -76,6 +85,28 @@ public abstract class SessionConnector implements Connector {
         if (settings == null) {
             throw new ConfigError("no settings");
         }
+    }
+
+    /**
+     * <p>
+     * Supplies the Executors to be used for all message processing and timer activities. This will override the default
+     * behavior which uses internally created Threads. This enables scenarios such as a ResourceAdapter to supply the
+     * WorkManager (when adapted to the Executor API) so that all Application call-backs occur on container managed
+     * threads.
+     * </p>
+     * <p>
+     * If using external Executors, this method should be called immediately after the constructor. Once set, the
+     * Executors cannot be changed.
+     * </p>
+     * 
+     * @param executorFactory See {@link ExecutorFactory} for detailed requirements.
+     */
+    public void setExecutorFactory(ExecutorFactory executorFactory) {
+        if (longLivedExecutor != null || shortLivedExecutor != null) {
+            throw new IllegalStateException("Optional ExecutorFactory has already been set.  It cannot be changed once set.");
+        }
+        longLivedExecutor = executorFactory.getLongLivedExecutor();
+        shortLivedExecutor = executorFactory.getShortLivedExecutor();
     }
 
     public void addPropertyChangeListener(PropertyChangeListener listener) {
@@ -87,8 +118,18 @@ public abstract class SessionConnector implements Connector {
     }
 
     protected void setSessions(Map<SessionID, Session> sessions) {
-        this.sessions = sessions;
+        clearConnectorSessions();
+        this.sessions.putAll(sessions);
         propertyChangeSupport.firePropertyChange(SESSIONS_PROPERTY, null, sessions);
+    }
+
+    /**
+     * Will remove all Sessions from the SessionConnector's Session map.
+     * Please make sure that these Sessions were unregistered before via
+     * Session.unregisterSessions().
+     */
+    protected void clearConnectorSessions() {
+        this.sessions.clear();
     }
 
     /**
@@ -98,7 +139,7 @@ public abstract class SessionConnector implements Connector {
      * @see quickfix.Session
      */
     public List<Session> getManagedSessions() {
-        return new ArrayList<Session>(sessions.values());
+        return new ArrayList<>(sessions.values());
     }
 
     /**
@@ -118,18 +159,18 @@ public abstract class SessionConnector implements Connector {
      * @return list of session identifiers
      */
     public ArrayList<SessionID> getSessions() {
-        return new ArrayList<SessionID>(sessions.keySet());
+        return new ArrayList<>(sessions.keySet());
     }
 
     public void addDynamicSession(Session inSession) {
         sessions.put(inSession.getSessionID(), inSession);
-        log.debug("adding session for " + inSession.getSessionID());
+        log.debug("adding session for {}", inSession.getSessionID());
         propertyChangeSupport.firePropertyChange(SESSIONS_PROPERTY, null, sessions);
     }
 
     public void removeDynamicSession(SessionID inSessionID) {
         sessions.remove(inSessionID);
-        log.debug("removing session for " + inSessionID);
+        log.debug("removing session for {}", inSessionID);
         propertyChangeSupport.firePropertyChange(SESSIONS_PROPERTY, null, sessions);
     }
 
@@ -167,8 +208,27 @@ public abstract class SessionConnector implements Connector {
         return true;
     }
 
+    /**
+     * Check if we have at least one session and that at least one session is logged on.
+     *
+     * @return false if no sessions exist or all sessions are logged off, true otherwise
+     */
+    //visible for testing only
+    boolean anyLoggedOn() {
+        // if no session, not logged on
+        if (sessions.isEmpty())
+            return false;
+        for (Session session : sessions.values()) {
+            // at least one session logged on
+            if (session.isLoggedOn())
+                return true;
+        }
+        // no sessions are logged on
+        return false;
+    }
+
     private Set<quickfix.Session> getLoggedOnSessions() {
-        Set<quickfix.Session> loggedOnSessions = new HashSet<quickfix.Session>(sessions.size());
+        Set<quickfix.Session> loggedOnSessions = new HashSet<>(sessions.size());
         for (Session session : sessions.values()) {
             if (session.isLoggedOn()) {
                 loggedOnSessions.add(session);
@@ -179,10 +239,6 @@ public abstract class SessionConnector implements Connector {
 
     protected void logoutAllSessions(boolean forceDisconnect) {
         log.info("Logging out all sessions");
-        if (sessions == null) {
-            log.error("Attempt to logout all sessions before initialization is complete.");
-            return;
-        }
         for (Session session : sessions.values()) {
             try {
                 session.logout();
@@ -191,20 +247,20 @@ public abstract class SessionConnector implements Connector {
             }
         }
 
-        if (forceDisconnect && isLoggedOn()) {
-            for (Session session : sessions.values()) {
-                try {
-                    if (session.isLoggedOn()) {
-                        session.disconnect("Forcibly disconnecting session", false);
+        if (anyLoggedOn()) {
+            if (forceDisconnect) {
+                for (Session session : sessions.values()) {
+                    try {
+                        if (session.isLoggedOn()) {
+                            session.disconnect("Forcibly disconnecting session", false);
+                        }
+                    } catch (Throwable e) {
+                        logError(session.getSessionID(), null, "Error during disconnect", e);
                     }
-                } catch (Throwable e) {
-                    logError(session.getSessionID(), null, "Error during disconnect", e);
                 }
+            } else {
+                waitForLogout();
             }
-        }
-
-        if (!forceDisconnect) {
-            waitForLogout();
         }
     }
 
@@ -254,23 +310,36 @@ public abstract class SessionConnector implements Connector {
     }
 
     protected void startSessionTimer() {
-        sessionTimerFuture = scheduledExecutorService.scheduleAtFixedRate(new SessionTimerTask(), 0, 1000L,
+        Runnable timerTask = new SessionTimerTask();
+        if (shortLivedExecutor != null) {
+            timerTask = new DelegatingTask(timerTask, shortLivedExecutor);
+        }
+        sessionTimerFuture = SCHEDULED_EXECUTOR.scheduleAtFixedRate(timerTask, 0, 1000L,
                 TimeUnit.MILLISECONDS);
         log.info("SessionTimer started");
     }
 
     protected void stopSessionTimer() {
         if (sessionTimerFuture != null) {
-            if (sessionTimerFuture.cancel(false))
+            if (sessionTimerFuture.cancel(true))
                 log.info("SessionTimer canceled");
         }
     }
 
+    // visible for testing
+    boolean checkSessionTimerRunning() {
+        if ( sessionTimerFuture != null ) {
+            return !sessionTimerFuture.isDone();
+        }
+        return false;
+    }
+
     protected ScheduledExecutorService getScheduledExecutorService() {
-        return scheduledExecutorService;
+        return SCHEDULED_EXECUTOR;
     }
 
     private class SessionTimerTask implements Runnable {
+        @Override
         public void run() {
             try {
                 for (Session session : sessions.values()) {
@@ -286,8 +355,60 @@ public abstract class SessionConnector implements Connector {
         }
     }
 
+    /**
+     * Delegates QFJ Timer Task to an Executor and blocks the QFJ Timer Thread until
+     * the Task execution completes.
+     */
+    static final class DelegatingTask implements Runnable {
+
+        private final BlockingSupportTask delegate;
+        private final Executor executor;
+
+        DelegatingTask(Runnable delegate, Executor executor) {
+            this.delegate = new BlockingSupportTask(delegate);
+            this.executor = executor;
+        }
+
+        @Override
+        public void run() {
+            executor.execute(delegate);
+            try {
+                delegate.await();
+            } catch (InterruptedException e) {
+            }
+        }
+
+        static final class BlockingSupportTask implements Runnable {
+
+            private final CountDownLatch latch = new CountDownLatch(1);
+            private final Runnable delegate;
+
+            BlockingSupportTask(Runnable delegate) {
+                this.delegate = delegate;
+            }
+
+            @Override
+            public void run() {
+                Thread currentThread = Thread.currentThread();
+                String threadName = currentThread.getName();
+                try {
+                    currentThread.setName("QFJ Timer (" + threadName + ")");
+                    delegate.run();
+                } finally {
+                    latch.countDown();
+                    currentThread.setName(threadName);
+                }
+            }
+
+            void await() throws InterruptedException {
+                latch.await();
+            }
+        }
+    }
+
     private static class QFTimerThreadFactory implements ThreadFactory {
 
+        @Override
         public Thread newThread(Runnable runnable) {
             Thread thread = new Thread(runnable, "QFJ Timer");
             thread.setDaemon(true);
@@ -310,4 +431,41 @@ public abstract class SessionConnector implements Connector {
     protected IoFilterChainBuilder getIoFilterChainBuilder() {
         return ioFilterChainBuilder;
     }
+    
+    /**
+     * Closes all managed sessions of an Initiator/Acceptor.
+     *
+     * @param ioService Acceptor or Initiator implementation
+     * @param awaitTermination whether to wait for underlying ExecutorService to terminate
+     * @param logger used for logging WARNING when IoSession could not be closed
+     */
+    public static void closeManagedSessionsAndDispose(IoService ioService, boolean awaitTermination, Logger logger) {
+        Map<Long, IoSession> managedSessions = ioService.getManagedSessions();
+        for (IoSession ioSession : managedSessions.values()) {
+            if (!ioSession.isClosing()) {
+                CloseFuture closeFuture = ioSession.closeNow();
+                boolean completed = false;
+                try {
+                    completed = closeFuture.await(1000, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                if (!completed) {
+                    logger.warn("Could not close IoSession {}", ioSession);
+                }
+            }
+        }
+        if (!ioService.isDisposing()) {
+            ioService.dispose(awaitTermination);
+        }
+    }
+
+    protected boolean isContinueInitOnError() throws ConfigError, FieldConvertError {
+        boolean continueInitOnError = false;
+        if (settings.isSetting(SessionFactory.SETTING_CONTINUE_INIT_ON_ERROR)) {
+            continueInitOnError = settings.getBool(SessionFactory.SETTING_CONTINUE_INIT_ON_ERROR);
+        }
+        return continueInitOnError;
+    }
+
 }

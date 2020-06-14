@@ -19,20 +19,19 @@
 
 package quickfix.mina;
 
-import java.net.SocketException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-
 import org.apache.mina.core.session.IoSession;
 import org.apache.mina.core.session.IoSessionConfig;
 import org.apache.mina.transport.socket.SocketSessionConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.FieldConvertError;
 import quickfix.field.converter.BooleanConverter;
 import quickfix.field.converter.IntConverter;
+
+import java.net.SocketException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 /**
  * This class holds the QFJ settings information related to networking options.
@@ -65,7 +64,7 @@ public class NetworkingOptions {
     public static final String IPTOC_RELIABILITY = "IPTOS_RELIABILITY";
     public static final String IPTOC_THROUGHPUT = "IPTOS_THROUGHPUT";
     public static final String IPTOC_LOWDELAY = "IPTOS_LOWDELAY";
-    public static final Map<String, Integer> trafficClasses = new HashMap<String, Integer>();
+    public static final Map<String, Integer> trafficClasses = new HashMap<>();
 
     static {
         trafficClasses.put(IPTOC_LOWCOST, 0x02);
@@ -101,8 +100,7 @@ public class NetworkingOptions {
                 }
             }
             trafficClassSetting = trafficClassBits;
-            log.info("Socket option: " + SETTING_SOCKET_TRAFFIC_CLASS + "= 0x"
-                    + Integer.toHexString(trafficClassBits) + " (" + trafficClassEnumString + ")");
+            log.info("Socket option: {}= 0x{} ({})", SETTING_SOCKET_TRAFFIC_CLASS, Integer.toHexString(trafficClassBits), trafficClassEnumString);
         }
 
         trafficClass = trafficClassSetting;
@@ -117,7 +115,7 @@ public class NetworkingOptions {
 
     private void logOption(String key, Object value) {
         if (value != null) {
-            log.info("Socket option: " + key + "=" + value);
+            log.info("Socket option: {}={}", key, value);
         }
     }
 

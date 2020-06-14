@@ -19,24 +19,14 @@
 
 package quickfix;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.math.BigDecimal;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.TimeZone;
-
+import org.junit.Rule;
 import org.junit.Test;
-
+import org.junit.rules.ExpectedException;
 import org.quickfixj.CharsetSupport;
 import quickfix.field.Account;
 import quickfix.field.AllocAccount;
 import quickfix.field.AllocShares;
+import quickfix.field.ApplExtID;
 import quickfix.field.ApplVerID;
 import quickfix.field.AvgPx;
 import quickfix.field.BeginString;
@@ -59,10 +49,17 @@ import quickfix.field.HandlInst;
 import quickfix.field.Headline;
 import quickfix.field.HopCompID;
 import quickfix.field.IOIID;
+import quickfix.field.LastPx;
+import quickfix.field.LastQty;
 import quickfix.field.LeavesQty;
+import quickfix.field.LegPrice;
+import quickfix.field.LegQty;
+import quickfix.field.LegRefID;
+import quickfix.field.LegSymbol;
 import quickfix.field.ListID;
 import quickfix.field.ListSeqNo;
 import quickfix.field.MDEntryPx;
+import quickfix.field.MaturityMonthYear;
 import quickfix.field.MsgDirection;
 import quickfix.field.MsgSeqNum;
 import quickfix.field.MsgType;
@@ -74,13 +71,19 @@ import quickfix.field.OrderQty;
 import quickfix.field.PartyID;
 import quickfix.field.PartyIDSource;
 import quickfix.field.PartyRole;
+import quickfix.field.PreviouslyReported;
 import quickfix.field.Price;
+import quickfix.field.PutOrCall;
+import quickfix.field.QuoteAckStatus;
 import quickfix.field.RawData;
 import quickfix.field.RawDataLength;
 import quickfix.field.RefMsgType;
 import quickfix.field.SecureData;
 import quickfix.field.SecurityID;
 import quickfix.field.SecurityIDSource;
+import quickfix.field.SecurityReqID;
+import quickfix.field.SecurityRequestResult;
+import quickfix.field.SecurityResponseID;
 import quickfix.field.SecurityType;
 import quickfix.field.SenderCompID;
 import quickfix.field.SendingTime;
@@ -88,10 +91,14 @@ import quickfix.field.SessionRejectReason;
 import quickfix.field.Side;
 import quickfix.field.Signature;
 import quickfix.field.SignatureLength;
+import quickfix.field.StrikePrice;
 import quickfix.field.Symbol;
 import quickfix.field.TargetCompID;
 import quickfix.field.TargetSubID;
+import quickfix.field.Text;
 import quickfix.field.TotNoOrders;
+import quickfix.field.TradeDate;
+import quickfix.field.TradeReportID;
 import quickfix.field.TransactTime;
 import quickfix.field.UnderlyingCurrency;
 import quickfix.field.UnderlyingSymbol;
@@ -105,11 +112,30 @@ import quickfix.fix44.Logon.NoMsgTypes;
 import quickfix.fix44.NewOrderCross;
 import quickfix.fix44.NewOrderSingle.NoPartyIDs;
 import quickfix.fix44.News;
+import quickfix.fix44.TradeCaptureReport;
 import quickfix.fix44.component.Instrument;
 import quickfix.fix44.component.Parties;
 import quickfix.fix50.MarketDataSnapshotFullRefresh;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Calendar;
+import java.util.TimeZone;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 public class MessageTest {
+
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
 
     @Test
     public void testRepeatingField() throws Exception {
@@ -132,8 +158,8 @@ public class MessageTest {
 
     private NewOrderSingle createNewOrderSingle() {
         return new NewOrderSingle(new ClOrdID("CLIENT"), new HandlInst(
-                HandlInst.AUTOMATED_EXECUTION_ORDER_PUBLIC), new Symbol("ORCL"),
-                new Side(Side.BUY), new TransactTime(new Date(0)), new OrdType(OrdType.LIMIT));
+			HandlInst.AUTOMATED_EXECUTION_ORDER_PUBLIC_BROKER_INTERVENTION_OK), new Symbol("ORCL"),
+			new Side(Side.BUY), new TransactTime(LocalDateTime.ofEpochSecond(0, 0, ZoneOffset.UTC)), new OrdType(OrdType.LIMIT));
     }
 
     @Test
@@ -166,6 +192,67 @@ public class MessageTest {
         myMessage.getHeader().setField(new TargetCompID("bar"));
 
         assertTrue(myMessage.toString().contains("52=20120922-11:00:00\00134=22\00149=foo\00156=bar"));
+    }
+    
+    
+    @Test
+    public void testHeaderFieldWithCustomTransportDictionaryConstructorReadsHeaderField() throws Exception {
+
+        final DataDictionary customSessionDictionary = new DataDictionary("FIXT11_Custom_Test.xml");
+        customSessionDictionary.setAllowUnknownMessageFields(false);
+
+        final DataDictionary standardSessionDictionary = new DataDictionary("FIXT11.xml");
+        standardSessionDictionary.setAllowUnknownMessageFields(false);
+
+        final DataDictionary applicationDictionary = new DataDictionary("FIX50.xml");
+        applicationDictionary.setAllowUnknownMessageFields(false);
+
+        final String sep = "\001";
+        final StringBuilder sb = new StringBuilder();
+        sb.append("8=FIXT1.1");
+        sb.append(sep);
+        sb.append("9=112");
+        sb.append(sep);
+        sb.append("35=6");
+        sb.append(sep);
+        sb.append("49=SENDER_COMP_ID");
+        sb.append(sep);
+        sb.append("56=TARGET_COMP_ID");
+        sb.append(sep);
+        sb.append("34=20");
+        sb.append(sep);
+        sb.append("52=20120922-11:00:00");
+        sb.append(sep);
+        sb.append("12312=foo");
+        sb.append(sep);
+        sb.append("23=123456");
+        sb.append(sep);
+        sb.append("28=N");
+        sb.append(sep);
+        sb.append("55=[N/A]");
+        sb.append(sep);
+        sb.append("54=1");
+        sb.append(sep);
+        sb.append("27=U");
+        sb.append(sep);
+        sb.append("10=52");
+        sb.append(sep);
+        final String messageData = sb.toString();
+
+        final Message standardMessage = new Message(messageData, standardSessionDictionary, applicationDictionary, true);
+
+        // Test that field is in body not the header
+        assertTrue(standardMessage.toString().contains("12312=foo"));
+        assertFalse(standardMessage.getHeader().isSetField(12312));
+        assertTrue(standardMessage.isSetField(12312));
+        assertEquals("foo", standardMessage.getString(12312));
+
+        // Test that field is correctly classified in header with customSessionDictionary
+        final Message customMessage = new Message(messageData, customSessionDictionary, applicationDictionary, true);
+        assertTrue(customMessage.toString().contains("12312=foo"));
+        assertTrue(customMessage.getHeader().isSetField(12312));
+        assertEquals("foo", customMessage.getHeader().getString(12312));
+        assertFalse(customMessage.isSetField(12312));
     }
 
     @Test
@@ -240,7 +327,7 @@ public class MessageTest {
         doTestMessageWithEncodedField("ISO-2022-JP", text);
         doTestMessageWithEncodedField("Shift_JIS", text);
         doTestMessageWithEncodedField("GBK", text);
-        //doTestMessageWithEncodedField("UTF-16", text); // double-byte charset not supported yet
+//        doTestMessageWithEncodedField("UTF-16", text); // double-byte charset not supported yet
     }
 
     @Test
@@ -570,6 +657,11 @@ public class MessageTest {
     }
 
     @Test
+    public void testApplExtIDIsHeaderField() {
+        assertTrue(Message.isHeaderField(ApplExtID.FIELD));
+    }
+
+    @Test
     public void testCalculateStringWithNestedGroups() throws Exception {
         final NewOrderCross noc = new NewOrderCross();
         noc.getHeader().setString(BeginString.FIELD, FixVersions.BEGINSTRING_FIX44);
@@ -586,7 +678,7 @@ public class MessageTest {
         noc.setString(TransactTime.FIELD, "20060319-09:08:19");
         noc.setString(CrossID.FIELD, "184214");
         noc.setInt(CrossType.FIELD,
-                CrossType.CROSS_TRADE_WHICH_IS_EXECUTED_PARTIALLY_AND_THE_REST_IS_CANCELLED);
+                CrossType.CROSS_IOC_CROSS_TRADE_WHICH_IS_EXECUTED_PARTIALLY_AND_THE_REST_IS_CANCELLED_ONE_SIDE_IS_FULLY_EXECUTED_THE_OTHER_SIDE_IS_PARTIALLY_EXECUTED_WITH_THE_REMAINDER_BEING_CANCELLED_THIS_IS_EQUIVALENT_TO_AN_IOC_ON_THE_OTHER_SIDE_NOTE_CROSSPRIORITIZATION_FIELD_MAY_BE_USED_TO_INDICATE_WHICH_SIDE_SHOULD_FULLY_EXECUTE_IN_THIS_SCENARIO_);
         noc.setInt(CrossPrioritization.FIELD, CrossPrioritization.NONE);
 
         final NewOrderCross.NoSides side = new NewOrderCross.NoSides();
@@ -700,7 +792,7 @@ public class MessageTest {
         try {
             message = new Message("8=FIX.4.2\0019=12\00135=A\001108=30\00110=026\001");
         } catch (final InvalidMessage e) {
-            assertTrue("Message should be valid (" + e.getMessage() + ")", false);
+            fail("Message should be valid (" + e.getMessage() + ")");
         }
         assertEquals("8=FIX.4.2\0019=12\00135=A\001108=30\00110=026\001", message.toString());
     }
@@ -770,7 +862,7 @@ public class MessageTest {
         final Message message = new quickfix.fix44.NewOrderSingle();
         final quickfix.fix44.NewOrderSingle.NoPartyIDs partyIdGroup = new quickfix.fix44.NewOrderSingle.NoPartyIDs();
         partyIdGroup.set(new PartyID("PARTY_1"));
-        partyIdGroup.set(new PartyIDSource(PartyIDSource.DIRECTED_BROKER));
+        partyIdGroup.set(new PartyIDSource(PartyIDSource.DIRECTED_BROKER_THREE_CHARACTER_ACRONYM_AS_DEFINED_IN_ISITC_ETC_BEST_PRACTICE_GUIDELINES_DOCUMENT));
         partyIdGroup.set(new PartyRole(PartyRole.INTRODUCING_FIRM));
         message.addGroup(partyIdGroup);
         final Message clonedMessage = (Message) message.clone();
@@ -912,7 +1004,7 @@ public class MessageTest {
 
         try {
             message.getString(5);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
@@ -921,12 +1013,12 @@ public class MessageTest {
         try {
             assertEquals("string5", message.getString(5));
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
 
         try {
             message.setString(100, null);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final NullPointerException e) {
         }
     }
@@ -937,16 +1029,16 @@ public class MessageTest {
 
         try {
             message.getBoolean(7);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
         message.setBoolean(7, true);
 
         try {
-            assertEquals(true, message.getBoolean(7));
+            assertTrue(message.getBoolean(7));
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
     }
 
@@ -956,7 +1048,7 @@ public class MessageTest {
 
         try {
             message.getChar(12);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
@@ -965,8 +1057,32 @@ public class MessageTest {
         try {
             assertEquals('a', message.getChar(12));
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
+    }
+
+    @Test
+    public void testMessageSetGetChars() throws FieldNotFound {
+        final Message message = new Message();
+
+        try {
+            message.getChars(18);
+            fail("exception not thrown");
+        } catch (final FieldNotFound e) {
+        }
+
+        message.setChars(18, 'a', 'b', '4');
+        assertArrayEquals(new char[] {'a', 'b', '4'}, message.getChars(18));
+    }
+
+    @Test
+    public void testMessageSetGetCharsInvalidFormatException() throws FieldNotFound {
+        expectedException.expect(FieldException.class);
+        expectedException.expectMessage("invalid char array: [65, 32, 98, 32, 48, 53]");
+
+        final Message message = new Message();
+        message.setString(123, "A b 05");
+        message.getChars(123);
     }
 
     @Test
@@ -975,7 +1091,7 @@ public class MessageTest {
 
         try {
             message.getInt(56);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
@@ -984,7 +1100,7 @@ public class MessageTest {
         try {
             assertEquals(23, message.getInt(56));
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
     }
 
@@ -994,7 +1110,7 @@ public class MessageTest {
 
         try {
             message.getDouble(9812);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
@@ -1003,7 +1119,7 @@ public class MessageTest {
         try {
             assertEquals(12.3443, message.getDouble(9812), 1e-10);
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
     }
 
@@ -1013,7 +1129,7 @@ public class MessageTest {
 
         try {
             message.getUtcTimeStamp(8);
-            assertTrue("exception not thrown", false);
+            fail("exception not thrown");
         } catch (final FieldNotFound e) {
         }
 
@@ -1022,13 +1138,13 @@ public class MessageTest {
         calendar.set(2002, 8, 6, 12, 34, 56);
         calendar.set(Calendar.MILLISECOND, 0);
 
-        final Date time = calendar.getTime();
+        final LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(calendar.getTimeInMillis()), ZoneOffset.UTC);
         message.setUtcTimeStamp(8, time);
 
         try {
-            assertEquals(message.getUtcTimeStamp(8).getTime(), time.getTime());
+            assertEquals(message.getUtcTimeStamp(8), time);
         } catch (final FieldNotFound e) {
-            assertTrue("exception thrown", false);
+            fail("exception thrown");
         }
     }
 
@@ -1045,7 +1161,7 @@ public class MessageTest {
     public void testMessageIterator() {
         Message message = new Message();
         java.util.Iterator<Field<?>> i = message.iterator();
-        assertEquals(false, i.hasNext());
+        assertFalse(i.hasNext());
         try {
             assertNull(i.next());
             fail("exception not thrown");
@@ -1060,7 +1176,7 @@ public class MessageTest {
             assertEquals(108, field.getField());
             assertEquals("30", field.getValue());
 
-            assertEquals(false, i.hasNext());
+            assertFalse(i.hasNext());
             try {
                 assertNull(i.next());
                 fail("exception not thrown");
@@ -1079,7 +1195,7 @@ public class MessageTest {
             assertEquals(35, field.getField());
             assertEquals("A", field.getValue());
 
-            assertEquals(false, j.hasNext());
+            assertFalse(j.hasNext());
             try {
                 assertNull(j.next());
                 fail("exception not thrown");
@@ -1353,6 +1469,468 @@ public class MessageTest {
         assertTrue(msg.isSetField(Account.FIELD));
     }
 
+    @Test
+    // QFJ-791
+    public void testRepeatingGroupCount() throws Exception {
+        /*
+         * Prepare a very simple TradeCaptureReport message template and two
+         * legs.
+         */
+        Message tcr = new TradeCaptureReport(new TradeReportID("ABC1234"), new PreviouslyReported(
+                false), new LastQty(1000), new LastPx(5.6789), new TradeDate("20140101"),
+                new TransactTime(LocalDateTime.now(ZoneOffset.UTC)));
+        tcr.getHeader().setField(new SenderCompID("SENDER"));
+        tcr.getHeader().setField(new TargetCompID("TARGET"));
+        tcr.getHeader().setField(new MsgSeqNum(1));
+        tcr.getHeader().setField(new SendingTime(LocalDateTime.now(ZoneOffset.UTC)));
+        TradeCaptureReport.NoLegs leg1 = new TradeCaptureReport.NoLegs();
+        leg1.setField(new LegSymbol("L1-XYZ"));
+        leg1.setField(new LegRefID("ABC1234-L1"));
+        leg1.setField(new LegQty(333));
+        leg1.setField(new LegPrice(1.2345));
+        TradeCaptureReport.NoLegs leg2 = new TradeCaptureReport.NoLegs();
+        leg2.setField(new LegSymbol("L2-XYZ"));
+        leg2.setField(new LegRefID("ABC1234-L2"));
+        leg2.setField(new LegQty(777));
+        leg2.setField(new LegPrice(2.3456));
+
+        /*
+         * Create a message from the template and add two legs. Convert the
+         * message to string and parse it. The parsed message should contain two
+         * legs.
+         */
+        {
+            Message m1 = new Message();
+            m1.getHeader().setFields(tcr.getHeader());
+            m1.setFields(tcr);
+            m1.addGroup(leg1);
+            m1.addGroup(leg2);
+
+            String s1 = m1.toString();
+            Message parsed1 = new Message(s1, DataDictionaryTest.getDictionary());
+
+            assertEquals(s1, parsed1.toString());
+            assertEquals(2, parsed1.getGroupCount(555));
+        }
+
+        /*
+         * Create a message from the template and add two legs, but the first
+         * leg contains the additional tag 58 (Text). Convert the message to
+         * string and parse it. The parsed message should also contain two legs.
+         */
+        {
+            Message m2 = new Message();
+            m2.getHeader().setFields(tcr.getHeader());
+            m2.setFields(tcr);
+
+            leg1.setField(new Text("TXT1")); // add unexpected tag to leg1
+            m2.addGroup(leg1);
+            m2.addGroup(leg2);
+
+            String s2 = m2.toString();
+            // do not use validation to parse full message
+            // regardless of errors in message structure
+            Message parsed2 = new Message(s2, DataDictionaryTest.getDictionary(), false);
+            
+            assertEquals(s2, parsed2.toString());
+            assertEquals(2, parsed2.getGroupCount(555));
+
+            /*
+             * If the above test failed, it means that a simple addition of an
+             * unexpected tag made the parsing logic fail pretty badly, as the
+             * number of legs is not 2.
+             */
+        }
+    }
+
+    @Test
+    // QFJ-791
+    public void testUnknownFieldsInRepeatingGroupsAndValidation() throws Exception {
+
+        Message tcr = new TradeCaptureReport(new TradeReportID("ABC1234"), new PreviouslyReported(
+                false), new LastQty(1000), new LastPx(5.6789), new TradeDate("20140101"),
+                new TransactTime(LocalDateTime.now(ZoneOffset.UTC)));
+        tcr.getHeader().setField(new SenderCompID("SENDER"));
+        tcr.getHeader().setField(new TargetCompID("TARGET"));
+        tcr.getHeader().setField(new MsgSeqNum(1));
+        tcr.getHeader().setField(new SendingTime(LocalDateTime.now(ZoneOffset.UTC)));
+        tcr.setField(new Symbol("ABC"));
+        TradeCaptureReport.NoLegs leg1 = new TradeCaptureReport.NoLegs();
+        leg1.setField(new LegSymbol("L1-XYZ"));
+        leg1.setField(new LegRefID("ABC1234-L1"));
+        leg1.setField(new LegQty(333));
+        leg1.setField(new LegPrice(1.2345));
+        TradeCaptureReport.NoLegs leg2 = new TradeCaptureReport.NoLegs();
+        leg2.setField(new LegSymbol("L2-XYZ"));
+        leg2.setField(new LegRefID("ABC1234-L2"));
+        leg2.setField(new LegQty(777));
+        leg2.setField(new LegPrice(2.3456));
+        TradeCaptureReport.NoSides sides = new TradeCaptureReport.NoSides();
+        sides.setField(new Side(Side.BUY));
+        sides.setField(new OrderID("ID"));
+
+        {
+            // will add a user-defined tag (i.e. greater than 5000) that is not defined in that group
+            Message m1 = new Message();
+            m1.getHeader().setFields(tcr.getHeader());
+            m1.setFields(tcr);
+
+            leg1.setField(new StringField(10000, "TXT1")); // add unexpected tag to leg1
+            m1.addGroup(leg1);
+            m1.addGroup(leg2);
+            m1.addGroup(sides);
+
+            String s1 = m1.toString();
+            DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+            // parsing without validation should succeed
+            Message parsed1 = new Message(s1, dictionary, false);
+
+            // validation should fail
+            int failingTag = 0;
+            try {
+                dictionary.validate(parsed1);
+            } catch (FieldException e) {
+                failingTag = e.getField();
+            }
+            assertEquals(10000, failingTag);
+
+            // but without checking user-defined fields, validation should succeed
+            dictionary.setCheckUserDefinedFields(false);
+            dictionary.validate(parsed1);
+
+            assertEquals(s1, parsed1.toString());
+            assertEquals(2, parsed1.getGroupCount(555));
+        }
+
+        {
+            // will add a normal tag that is not in the dictionary for that group
+            Message m2 = new Message();
+            m2.getHeader().setFields(tcr.getHeader());
+            m2.setFields(tcr);
+
+            leg1.removeField(10000);         // remove user-defined tag from before
+            leg1.setField(new Text("TXT1")); // add unexpected tag to leg1
+
+            m2.addGroup(leg1);
+            m2.addGroup(leg2);
+            m2.addGroup(sides);
+
+            String s2 = m2.toString();
+            DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+            // parsing without validation should succeed
+            Message parsed2 = new Message(s2, dictionary, false);
+
+            // validation should fail
+            int failingTag = 0;
+            try {
+                dictionary.validate(parsed2);
+            } catch (FieldException e) {
+                failingTag = e.getField();
+            }
+            assertEquals(Text.FIELD, failingTag);
+            
+            // but without checking for unknown message fields, validation should succeed
+            dictionary.setAllowUnknownMessageFields(true);
+            dictionary.validate(parsed2);
+
+            assertEquals(s2, parsed2.toString());
+            assertEquals(2, parsed2.getGroupCount(555));
+        }
+    }
+
+    @Test
+    // QFJ-169
+    public void testInvalidFieldInGroup() throws Exception {
+        SecurityRequestResult resultCode = new SecurityRequestResult(
+                SecurityRequestResult.NO_INSTRUMENTS_FOUND_THAT_MATCH_SELECTION_CRITERIA);
+
+        UnderlyingSymbol underlyingSymbolField = new UnderlyingSymbol("UND");
+        SecurityReqID id = new SecurityReqID("1234");
+
+        quickfix.fix44.DerivativeSecurityList responseMessage = new quickfix.fix44.DerivativeSecurityList();
+        responseMessage.setField(id);
+        responseMessage.setField(underlyingSymbolField);
+        responseMessage.setField(new SecurityResponseID("2345"));
+        Group optionGroup = new quickfix.fix44.DerivativeSecurityList.NoRelatedSym();
+        optionGroup.setField(new Symbol("OPT+RQ"));
+        optionGroup.setField(new StringField(StrikePrice.FIELD, "10"));
+        // add invalid field for this FIX version
+        optionGroup.setField(new QuoteAckStatus(0));
+        optionGroup.setField(new PutOrCall(PutOrCall.CALL));
+        optionGroup.setField(new MaturityMonthYear("200802"));
+        responseMessage.addGroup(optionGroup);
+
+        Group group2 = new quickfix.fix44.DerivativeSecurityList.NoRelatedSym();
+        group2.setField(new Symbol("OPT+RB"));
+        group2.setField(new StringField(StrikePrice.FIELD, "10"));
+        group2.setField(new MaturityMonthYear("200802"));
+        responseMessage.addGroup(group2);
+        resultCode.setValue(SecurityRequestResult.VALID_REQUEST);
+        responseMessage.setField(resultCode);
+
+        DataDictionary dd = new DataDictionary(DataDictionaryTest.getDictionary());
+        
+        int tagNo = 0;
+        try {
+            dd.validate(responseMessage, true);
+        } catch (FieldException e) {
+            tagNo = e.getField();
+        }
+        // make sure that tag 297 is reported as invalid, NOT tag 55
+        // (which is the first field after the invalid 297 field)
+        assertEquals(QuoteAckStatus.FIELD, tagNo);
+
+        Message msg2 = new Message(responseMessage.toString(), dd);
+        try {
+            dd.validate(msg2, true);
+        } catch (FieldException e) {
+            tagNo = e.getField();
+        }
+        // make sure that tag 297 is reported as invalid, NOT tag 55
+        // (which is the first field after the invalid 297 field)
+        assertEquals(QuoteAckStatus.FIELD, tagNo);
+
+        // parse message again without validation
+        msg2 = new Message(responseMessage.toString(), dd, false);
+        assertEquals(responseMessage.toString(), msg2.toString());
+        Group noRelatedSymGroup = new quickfix.fix44.DerivativeSecurityList.NoRelatedSym();
+        Group group = responseMessage.getGroup(1, noRelatedSymGroup);
+        assertTrue(group.isSetField(QuoteAckStatus.FIELD));
+
+        group = responseMessage.getGroup(2, noRelatedSymGroup);
+        assertFalse(group.isSetField(QuoteAckStatus.FIELD));
+    }
+
+    @Test
+    // QFJ-169/QFJ-791
+    public void testNestedRepeatingGroup()
+        throws Exception {
+        
+        String newOrdersSingleString = "8=FIX.4.4|9=265|35=D|34=62|49=sender|52=20160803-12:55:42.094|"
+                + "56=target|11=16H03A0000021|15=CHF|22=4|38=13|40=2|44=132|48=CH000000000|54=1|55=[N/A]|59=0|"
+                + "60=20160803-12:55:41.866|207=XXXX|423=2|526=foo|528=P|"
+                // tag 20000 is not defined, tag 22000 is defined for NewOrderSingle in FIX44_Custom_Test.xml
+                + "453=1|448=test|447=D|452=7|20000=0|802=1|523=test|803=25|22000=foobar|10=244|";
+
+        quickfix.fix44.NewOrderSingle nos = new quickfix.fix44.NewOrderSingle();
+        // using custom dictionary with user-defined tag 22000
+        final DataDictionary dataDictionary = new DataDictionary("FIX44_Custom_Test.xml");
+        dataDictionary.setCheckUserDefinedFields(false);
+        nos.fromString(newOrdersSingleString.replaceAll("\\|", "\001"), dataDictionary, true);
+        assertNull(nos.getException());
+        dataDictionary.validate(nos);
+
+        // defined tag should be set on the message
+        assertTrue(nos.isSetField(22000));
+        // undefined tag should not be set on the message
+        assertFalse(nos.isSetField(20000));
+        Group partyGroup = nos.getGroup(1, quickfix.field.NoPartyIDs.FIELD);
+        // undefined tag should be set on the group instead
+        assertTrue(partyGroup.isSetField(20000));
+        assertFalse(partyGroup.getGroup(1, quickfix.field.NoPartySubIDs.FIELD).isSetField(20000));
+    }
+
+    @Test
+    public void testUnknownTagBeforeFirstFieldInRepeatingGroup()
+            throws Exception {
+
+        // Given
+        String newOrdersSingleString = "8=FIX.4.4|9=265|35=D|34=62|49=sender|52=20160803-12:55:42.094|"
+                + "56=target|11=16H03A0000021|15=CHF|22=4|38=13|40=2|44=132|48=CH000000000|54=1|55=[N/A]|59=0|"
+                + "60=20160803-12:55:41.866|207=XXXX|423=2|526=foo|528=P|"
+                // tag 20000 is not defined for NewOrderSingle
+                + "453=1|20000=0|448=test|447=D|452=7|802=1|523=test|803=25|10=244|";
+
+        quickfix.fix44.NewOrderSingle nos = new quickfix.fix44.NewOrderSingle();
+        final DataDictionary dataDictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        dataDictionary.setCheckUserDefinedFields(false);
+
+        // When
+        nos.fromString(newOrdersSingleString.replaceAll("\\|", "\001"), dataDictionary, true);
+
+        // Then
+        FieldException e = nos.getException();
+        assertEquals(e.getMessage(), SessionRejectReason.REPEATING_GROUP_FIELDS_OUT_OF_ORDER, e
+                .getSessionRejectReason());
+        assertEquals(20000, e.getField());
+    }
+
+    @Test
+    // QFJ-169/QFJ-791
+    public void testNestedRepeatingSubGroup()
+            throws Exception {
+
+        String newOrdersSingleString = "8=FIX.4.4|9=265|35=D|34=62|49=sender|52=20160803-12:55:42.094|"
+                + "56=target|11=16H03A0000021|15=CHF|22=4|38=13|40=2|44=132|48=CH000000000|54=1|55=[N/A]|59=0|"
+                + "60=20160803-12:55:41.866|207=XXXX|423=2|526=foo|528=P|"
+                // tag 20000 is not defined, tag 22000 is defined for NewOrderSingle in FIX44_Custom_Test.xml
+                + "453=1|448=test|447=D|452=7|802=1|523=test|803=25|20000=0|22000=foobar|10=244|";
+
+        quickfix.fix44.NewOrderSingle nos = new quickfix.fix44.NewOrderSingle();
+        // using custom dictionary with user-defined tag 22000
+        final DataDictionary dataDictionary = new DataDictionary("FIX44_Custom_Test.xml");
+        dataDictionary.setCheckUserDefinedFields(false);
+        nos.fromString(newOrdersSingleString.replaceAll("\\|", "\001"), dataDictionary, true);
+        assertNull(nos.getException());
+        dataDictionary.validate(nos);
+
+        // defined tag should be set on the message
+        assertTrue(nos.isSetField(22000));
+        // undefined tag should not be set on the message
+        assertFalse(nos.isSetField(20000));
+        Group partyGroup = nos.getGroup(1, quickfix.field.NoPartyIDs.FIELD);
+        // undefined tag should be set on the subgroup instead
+        assertFalse(partyGroup.isSetField(20000));
+        assertTrue(partyGroup.getGroup(1, quickfix.field.NoPartySubIDs.FIELD).isSetField(20000));
+    }
+
+    @Test
+    // QFJ-792
+    public void testRepeatingGroupCountForIncorrectFieldOrder() throws Exception {
+        // correct order would be 600, 687, 654, 566 
+        testRepeatingGroupCountForFieldOrder(new int[]{600, 687, 566, 654});
+    }
+
+    private void testRepeatingGroupCountForFieldOrder(int fieldOrder[]) throws Exception {
+        /*
+          *  Prepare a very simple TradeCaptureReport message template with 1
+          *  repeating group.
+         */
+        Message tcr = new TradeCaptureReport();
+        tcr.getHeader().setField(new MsgSeqNum(1));
+        tcr.getHeader().setField(new SendingTime(LocalDateTime.now(ZoneOffset.UTC)));
+        tcr.getHeader().setField(new SenderCompID("SENDER"));
+        tcr.getHeader().setField(new TargetCompID("TARGET"));
+        tcr.setField(new TradeReportID("ABC1234"));
+        tcr.setField(new PreviouslyReported(false));
+        tcr.setField(new LastQty(1000));
+        tcr.setField(new LastPx(5.6789));
+        tcr.setField(new TradeDate("20140101"));
+        tcr.setField(new TransactTime(LocalDateTime.now(ZoneOffset.UTC)));
+        Group leg1 = new Group(555, 600, fieldOrder);
+        leg1.setField(new LegSymbol("L1-XYZ"));
+        leg1.setField(new LegRefID("ABC1234-L1"));
+        leg1.setField(new LegQty(333));
+        leg1.setField(new LegPrice(1.2345));
+        tcr.addGroup(leg1);
+        /*
+          * Convert the message to string and parse it. The parsed message should
+          * contain 1 repeating group.
+         */
+        String s = tcr.toString();
+        DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        dictionary.setCheckUnorderedGroupFields(false);
+        // without checking order of repeating group it should work
+        Message parsed = new Message(s, dictionary);
+        FieldException exception = parsed.getException();
+        assertNull(exception);
+
+        assertEquals(1, parsed.getGroupCount(555));
+
+        dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        // when checking order of repeating group, an error should be reported
+        parsed = new Message(s, dictionary);
+        exception = parsed.getException();
+        assertEquals(654, exception.getField());
+        // but we still should have the repeating group set and not ignore it
+        assertEquals(1, parsed.getGroupCount(555));
+    }
+    
+    // QFJ-533
+    @Test
+    public void testRepeatingGroupCountWithNonIntegerValues() throws Exception {
+        DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        Message ioi = new quickfix.fix50.IOI();
+        ioi.setString(quickfix.field.NoPartyIDs.FIELD, "abc");
+        final String invalidCountMessage = ioi.toString();
+        try {
+            Message message =  new Message(invalidCountMessage, dictionary);
+        } catch (final InvalidMessage im) {
+            assertNotNull("InvalidMessage correctly thrown", im);
+        } catch (final Throwable e) {
+            e.printStackTrace();
+            fail("InvalidMessage expected, got " + e.getClass().getName());
+        }
+    }
+    
+
+    // QFJ-770/QFJ-792
+    @Test
+    public void testRepeatingGroupCountWithUnknownFields() throws Exception {
+        String test = "8=FIX.4.4|9=431|35=d|49=1|34=2|52=20140117-18:20:26.629|56=3|57=21|322=388721|"
+                + "323=4|320=1|393=42|82=1|67=1|711=1|311=780508|309=text|305=8|463=FXXXXX|307=text|542=20140716|"
+                + "436=10.0|9013=1.0|9014=1.0|9017=10|9022=1|9024=1.0|9025=Y|916=20140701|917=20150731|9201=23974|"
+                + "9200=17|9202=text|9300=727|9301=text|9302=text|9303=text|998=text|9100=text|9101=text|9085=text|"
+                + "9083=0|9084=0|9061=579|9062=text|9063=text|9032=10.0|9002=F|9004=780415|9005=780503|10=223|";
+        
+        DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        Message message = new Message();
+        message.fromString(test.replaceAll("\\|", "\001"), dictionary, true);
+        Group group = message.getGroup(1, 711);
+        String underlyingSymbol = group.getString(311);
+        assertEquals("780508", underlyingSymbol);
+    }
+
+    @Test
+    // QFJ-940
+    public void testRawString() throws Exception {
+
+        String test = "8=FIX.4.4|9=431|35=d|49=1|34=2|52=20140117-18:20:26.629|56=3|57=21|322=388721|"
+                + "323=4|320=1|393=42|82=1|67=1|711=1|311=780508|309=text|305=8|463=FXXXXX|307=text|542=20140716|"
+                + "436=10.0|9013=1.0|9014=1.0|9017=10|9022=1|9024=1.0|9025=Y|916=20140701|917=20150731|9201=23974|"
+                + "9200=17|9202=text|9300=727|9301=text|9302=text|9303=text|998=text|9100=text|9101=text|9085=text|"
+                + "9083=0|9084=0|9061=579|9062=text|9063=text|9032=10.0|9002=F|9004=780415|9005=780503|10=223|";
+        
+        DataDictionary dictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+        Message message = new Message();
+        message.fromString(test.replaceAll("\\|", "\001"), dictionary, true);
+        assertEquals(test, message.toRawString().replaceAll("\001", "\\|"));
+    }
+
+    // QFJ-722
+    @Test
+    public void testIfMessageHeaderIsOverwritten() {
+        final Message fix42Message = new quickfix.fix42.Message();
+        assertEquals(quickfix.fix42.Message.Header.class, fix42Message.getHeader().getClass());
+
+        final Message fix44Message = new quickfix.fix44.Message();
+        assertEquals(quickfix.fix44.Message.Header.class, fix44Message.getHeader().getClass());
+
+        final Message fix50Message = new quickfix.fix50.Message();
+        assertEquals(quickfix.fix50.Message.Header.class, fix50Message.getHeader().getClass());
+
+        final Message fixt11Message = new quickfix.fixt11.Message();
+        assertEquals(quickfix.fixt11.Message.Header.class, fixt11Message.getHeader().getClass());
+    }
+
+    // QFJ-722
+    @Test
+    public void testIfMessageHeaderIsCreatedWithEveryConstructor() throws Exception {
+        final String rawMessage = "8=FIX.4.2\0019=12\00135=A\001108=30\00110=026\001";
+        final DataDictionary dataDictionary = new DataDictionary(DataDictionaryTest.getDictionary());
+
+        final Message emptyConstructor = new Message();
+        assertNotNull(emptyConstructor.getHeader());
+
+        final Message secondConstructor = new Message(new int[] {});
+        assertNotNull(secondConstructor.getHeader());
+
+        final Message thirdConstructor = new Message(rawMessage);
+        assertNotNull(thirdConstructor.getHeader());
+
+        final Message fourthConstructor = new Message(rawMessage, false);
+        assertNotNull(fourthConstructor.getHeader());
+
+        final Message fifthConstructor = new Message(rawMessage, dataDictionary);
+        assertNotNull(fifthConstructor.getHeader());
+
+        final Message sixthConstructor = new Message(rawMessage, dataDictionary, false);
+        assertNotNull(sixthConstructor.getHeader());
+
+        final Message seventhConstructor = new Message(rawMessage, dataDictionary, dataDictionary, false);
+        assertNotNull(seventhConstructor.getHeader());
+    }
+
     private void assertHeaderField(Message message, String expectedValue, int field)
             throws FieldNotFound {
         assertEquals(expectedValue, message.getHeader().getString(field));
@@ -1414,14 +1992,18 @@ public class MessageTest {
     }
 
     private void assertAllocation(String accountId, Object shares) {
-        if (accountId.equals("AllocACC1")) {
-            assertEquals("got shares: " + shares, 0,
-                    new BigDecimal("1010.10").compareTo(new BigDecimal(shares.toString())));
-        } else if (accountId.equals("AllocACC2")) {
-            assertEquals("got shares: " + shares, 0,
-                    new BigDecimal("2020.20").compareTo(new BigDecimal(shares.toString())));
-        } else {
-            fail("Unknown account");
+        switch (accountId) {
+            case "AllocACC1":
+                assertEquals("got shares: " + shares, 0,
+                        new BigDecimal("1010.10").compareTo(new BigDecimal(shares.toString())));
+                break;
+            case "AllocACC2":
+                assertEquals("got shares: " + shares, 0,
+                        new BigDecimal("2020.20").compareTo(new BigDecimal(shares.toString())));
+                break;
+            default:
+                fail("Unknown account");
+                break;
         }
     }
 

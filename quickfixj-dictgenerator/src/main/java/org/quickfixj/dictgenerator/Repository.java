@@ -19,8 +19,11 @@
 
 package org.quickfixj.dictgenerator;
 
+import org.dom4j.Document;
+import org.dom4j.Node;
+import org.dom4j.io.SAXReader;
+
 import java.io.File;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -28,36 +31,30 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import org.dom4j.Document;
-import org.dom4j.Node;
-import org.dom4j.io.SAXReader;
-
 public class Repository {
 
     private final File repository;
     private final Document components, enums, fields, msgContents, msgType;
-    private final Map<String, MsgType> sessionMsgTypes = new TreeMap<String, MsgType>(), applicationMsgTypes = new TreeMap<String, MsgType>();
-    private final Map<String, Field> allFields = new TreeMap<String, Field>();
-    private final Map<String, Component> allComponents = new TreeMap<String, Component>();
+    private final Map<String, MsgType> sessionMsgTypes = new TreeMap<>(), applicationMsgTypes = new TreeMap<>();
+    private final Map<String, Field> allFields = new TreeMap<>();
+    private final Map<String, Component> allComponents = new TreeMap<>();
 
     public Repository(File repositoryFile) throws Exception {
         this.repository = repositoryFile;
-        Set<String> requiredFiles = new HashSet<String>();
+        Set<String> requiredFiles = new HashSet<>();
         requiredFiles.add("Components.xml");
         requiredFiles.add("Enums.xml");
         requiredFiles.add("Fields.xml");
         requiredFiles.add("MsgContents.xml");
         requiredFiles.add("MsgType.xml");
         for (File file : repository.listFiles()) {
-            if (requiredFiles.contains(file.getName())) {
-                requiredFiles.remove(file.getName());
-            }
+            requiredFiles.remove(file.getName());
         }
         if (!requiredFiles.isEmpty()) {
             throw new Exception("Invalid repository: Missing required files: " + requiredFiles);
         }
 
-        SAXReader reader = new SAXReader();
+        SAXReader reader = SAXReader.createDefault();
         components = reader.read(new File(repository, "Components.xml"));
         enums = reader.read(new File(repository, "Enums.xml"));
         fields = reader.read(new File(repository, "Fields.xml"));
@@ -109,11 +106,11 @@ public class Repository {
         List<?> msgTypeNodes = msgType.selectNodes("//dataroot/MsgType[NotReqXML=" + notReqXML + "]");
         for (Object o : msgTypeNodes) {
             Node node = (Node) o;
-            String msgID = node.selectSingleNode("MsgID").getText();
-            String messageName = node.selectSingleNode("MessageName").getText();
-            String componentType = node.selectSingleNode("ComponentType").getText();
-            String category = node.selectSingleNode("Category").getText();
-            String msgType = node.selectSingleNode("MsgType").getText();
+            String msgID = getSingleNodeTextSafe(node, "MsgID");
+            String messageName = getSingleNodeTextSafe(node, "MessageName");
+            String componentType = getSingleNodeTextSafe(node, "ComponentType");
+            String category = getSingleNodeTextSafe(node, "Category");
+            String msgType = getSingleNodeTextSafe(node, "MsgType");
             msgTypeMap.put(msgType, new MsgType(msgID, messageName, componentType, category, notReqXML, msgType));
         }
 
@@ -125,8 +122,8 @@ public class Repository {
             System.out.println("\t " + msgType.getName());
             for (Object o : msgContentsNodes) {
                 Node node = (Node) o;
-                String tagText = node.selectSingleNode("TagText").getText();
-                String reqd = node.selectSingleNode("Reqd").getText();
+                String tagText = getSingleNodeTextSafe(node, "TagText");
+                String reqd = getSingleNodeTextSafe(node, "Reqd");
                 //if (allFields.containsKey(tagText) && notReqXML.equals(allFields.get(tagText).getNotReqXML())) {
                 if (allFields.containsKey(tagText)) {
                     MsgTypeField msgTypeField = new MsgTypeField(allFields.get(tagText), reqd);
@@ -149,23 +146,23 @@ public class Repository {
         List<?> fieldNodes = fields.selectNodes("//dataroot/Fields");
         for (Object o : fieldNodes) {
             Node node = (Node) o;
-            String tag = node.selectSingleNode("Tag").getText();
-            String fieldName = node.selectSingleNode("FieldName").getText();
+            String tag = getSingleNodeTextSafe(node, "Tag");
+            String fieldName = getSingleNodeTextSafe(node, "FieldName");
             System.out.println("\t " + fieldName + "(" + tag + ")");
-            String type = node.selectSingleNode("Type").getText();
-            String desc = node.selectSingleNode("Desc").getText();
-            String notReqXML = node.selectSingleNode("NotReqXML").getText();
+            String type = getSingleNodeTextSafe(node, "Type");
+            String desc = getSingleNodeTextSafe(node, "Desc");
+            String notReqXML = getSingleNodeTextSafe(node, "NotReqXML");
             Field field = new Field(tag, fieldName, type, desc, notReqXML);
             allFields.put(field.getTag(), field);
             // Find enums
             List<?> enumNodes = enums.selectNodes("//dataroot/Enums[Tag=" + tag + "]");
-            Collections.sort(enumNodes, new EnumNodeComparator());
+            enumNodes.sort(new EnumNodeComparator());
             if (!enumNodes.isEmpty()) {
                 for (Object enumO : enumNodes) {
                     Node enumNode = (Node) enumO;
-                    String enumName = enumNode.selectSingleNode("Enum").getText();
+                    String enumName = getSingleNodeTextSafe(enumNode, "Enum");
                     System.out.println("\t\t " + enumName);
-                    String enumDesc = enumNode.selectSingleNode("Description").getText();
+                    String enumDesc = getSingleNodeTextSafe(enumNode, "Description");
                     field.addEnum(new Enum(enumName, enumDesc));
                 }
             }
@@ -173,16 +170,24 @@ public class Repository {
         System.out.println(getClass().getSimpleName() + ": " + allFields.size() + " Fields found");
     }
 
+    private String getSingleNodeTextSafe(Node node, String tag) {
+        Node nodeWithTag = node.selectSingleNode(tag);
+        if(nodeWithTag != null)
+            return nodeWithTag.getText();
+        else
+            throw new RuntimeException("Node with tag "+tag+" not found in "+node.getPath());
+    }
+
     private void initComponents() {
         System.out.println(getClass().getSimpleName() + ": Init Components...");
         List<?> componentNodes = components.selectNodes("//dataroot/Components");
         for (Object o : componentNodes) {
             Node node = (Node) o;
-            String msgID = node.selectSingleNode("MsgID").getText();
-            String componentName = node.selectSingleNode("ComponentName").getText();
-            String componentType = node.selectSingleNode("ComponentType").getText();
-            String category = node.selectSingleNode("Category").getText();
-            String notReqXML = node.selectSingleNode("NotReqXML").getText();
+            String msgID = getSingleNodeTextSafe(node, "MsgID");
+            String componentName = getSingleNodeTextSafe(node, "ComponentName");
+            String componentType = getSingleNodeTextSafe(node, "ComponentType");
+            String category = getSingleNodeTextSafe(node, "Category");
+            String notReqXML = getSingleNodeTextSafe(node, "NotReqXML");
             allComponents.put(componentName, new Component(msgID, componentName, componentType, category, notReqXML));
         }
 
@@ -203,8 +208,8 @@ public class Repository {
         }
         for (Object o : msgContentsNodes) {
             Node node = (Node) o;
-            String tagText = node.selectSingleNode("TagText").getText();
-            String reqd = node.selectSingleNode("Reqd").getText();
+            String tagText = getSingleNodeTextSafe(node, "TagText");
+            String reqd = getSingleNodeTextSafe(node, "Reqd");
             if (allFields.containsKey(tagText)) {
                 ComponentField componentField = new ComponentField(allFields.get(tagText), reqd);
                 component.addMsgContent(componentField);
@@ -223,16 +228,17 @@ public class Repository {
 
     private List<?> getMsgContents(String msgID) {
         List<?> nodes = msgContents.selectNodes("//dataroot/MsgContents[MsgID=" + msgID + "]");
-        Collections.sort(nodes, new MsgContentNodeComparator());
+        nodes.sort(new MsgContentNodeComparator());
         return nodes;
     }
 
     class MsgContentNodeComparator implements Comparator<Object> {
+	@Override
         public int compare(Object o1, Object o2) {
             try {
-                Double pos1 = Double.parseDouble(((Node) o1).selectSingleNode("Position").getText());
-                Double pos2 = Double.parseDouble(((Node) o2).selectSingleNode("Position").getText());
-                return pos1.compareTo(pos2);
+                double pos1 = Double.parseDouble(getSingleNodeTextSafe((Node) o1, "Position"));
+                double pos2 = Double.parseDouble(getSingleNodeTextSafe((Node) o2, "Position"));
+                return Double.compare(pos1, pos2);
             } catch (Exception e) {
                 return 0;
             }
@@ -240,11 +246,12 @@ public class Repository {
     }
 
     class EnumNodeComparator implements Comparator<Object> {
+	@Override
         public int compare(Object o1, Object o2) {
             try {
-                Double pos1 = Double.parseDouble(((Node) o1).selectSingleNode("Sort").getText());
-                Double pos2 = Double.parseDouble(((Node) o2).selectSingleNode("Sort").getText());
-                return pos1.compareTo(pos2);
+                double pos1 = Double.parseDouble(getSingleNodeTextSafe((Node) o1, "Sort"));
+                double pos2 = Double.parseDouble(getSingleNodeTextSafe((Node) o2, "Sort"));
+                return Double.compare(pos1, pos2);
             } catch (Exception e) {
                 return 0;
             }

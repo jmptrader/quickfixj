@@ -19,21 +19,18 @@
 
 package quickfix.field.converter;
 
+import quickfix.FieldConvertError;
+import quickfix.RuntimeError;
+
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import quickfix.FieldConvertError;
-import quickfix.RuntimeError;
 
 /**
  * Converts between a double and a String.
  */
 public class DoubleConverter {
-    private static final Pattern decimalPattern = Pattern.compile("-?\\d*(\\.\\d*)?");
-    private static final ThreadLocal<DecimalFormat[]> threadDecimalFormats = new ThreadLocal<DecimalFormat[]>();
+    private static final ThreadLocal<DecimalFormat[]> THREAD_DECIMAL_FORMATS = new ThreadLocal<>();
 
     /**
      * Converts a double to a string with no padding.
@@ -51,10 +48,10 @@ public class DoubleConverter {
             // FieldConvertError not supported in setDouble methods on Message
             throw new RuntimeError("maximum padding of 14 zeroes is supported: " + padding);
         }
-        DecimalFormat[] decimalFormats = threadDecimalFormats.get();
+        DecimalFormat[] decimalFormats = THREAD_DECIMAL_FORMATS.get();
         if (decimalFormats == null) {
             decimalFormats = new DecimalFormat[14];
-            threadDecimalFormats.set(decimalFormats);
+            THREAD_DECIMAL_FORMATS.set(decimalFormats);
         }
         DecimalFormat f = decimalFormats[padding];
         if (f == null) {
@@ -92,13 +89,25 @@ public class DoubleConverter {
      */
     public static double convert(String value) throws FieldConvertError {
         try {
-            Matcher matcher = decimalPattern.matcher(value);
-            if (!matcher.matches()) {
-                throw new NumberFormatException();
-            }
-            return Double.parseDouble(value);
+            return parseDouble(value);
         } catch (NumberFormatException e) {
             throw new FieldConvertError("invalid double value: " + value);
         }
+    }
+
+    private static double parseDouble(String value) {
+        if(value.length() == 0) throw new NumberFormatException(value);
+        boolean dot = false; int i = 0;
+        char c = value.charAt(i);
+        switch (c) {
+            case '-': i++; break;
+            case '+': throw new NumberFormatException(value);
+        }
+        for (; i < value.length(); i++) {
+            c = value.charAt(i);
+            if (!dot && c == '.') dot = true;
+            else if (c < '0' || c > '9') throw new NumberFormatException(value);
+        }
+        return Double.parseDouble(value);
     }
 }

@@ -28,9 +28,44 @@ import quickfix.mina.initiator.AbstractSocketInitiator;
  * sessions.
  */
 public class SocketInitiator extends AbstractSocketInitiator {
-    private Boolean isStarted = Boolean.FALSE;
-    private final Object lock = new Object();
+    private volatile Boolean isStarted = Boolean.FALSE;
     private final SingleThreadedEventHandlingStrategy eventHandlingStrategy;
+
+    private SocketInitiator(Builder builder) throws ConfigError {
+        super(builder.application, builder.messageStoreFactory, builder.settings,
+                builder.logFactory, builder.messageFactory, builder.numReconnectThreads);
+
+        if (builder.queueCapacity >= 0) {
+            eventHandlingStrategy
+                    = new SingleThreadedEventHandlingStrategy(this, builder.queueCapacity);
+        } else {
+            eventHandlingStrategy
+                    = new SingleThreadedEventHandlingStrategy(this, builder.queueLowerWatermark, builder.queueUpperWatermark);
+        }
+    }
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static final class Builder extends AbstractSessionConnectorBuilder<Builder, SocketInitiator> {
+        
+        int numReconnectThreads = 3;
+
+        private Builder() {
+            super(Builder.class);
+        }
+        
+        public Builder withReconnectThreads(int numReconnectThreads) throws ConfigError {
+            this.numReconnectThreads = numReconnectThreads;
+            return this;
+        }
+
+        @Override
+        protected SocketInitiator doBuild() throws ConfigError {
+            return new SocketInitiator(this);
+        }
+    }
 
     public SocketInitiator(Application application, MessageStoreFactory messageStoreFactory,
             SessionSettings settings, MessageFactory messageFactory, int queueCapacity) throws ConfigError {
@@ -80,50 +115,39 @@ public class SocketInitiator extends AbstractSocketInitiator {
     }
 
     @Override
-    public void block() throws ConfigError, RuntimeError {
-        initialize(false);
-    }
-
-    @Override
     public void start() throws ConfigError, RuntimeError {
-        initialize(true);
+        initialize();
     }
-
-    @Override
-    public void stop() {
-        stop(false);
+    
+    private void initialize() throws ConfigError {
+        if (isStarted.equals(Boolean.FALSE)) {
+            eventHandlingStrategy.setExecutor(longLivedExecutor);
+            createSessionInitiators();
+            for (Session session : getSessionMap().values()) {
+                Session.registerSession(session);
+            }
+            startInitiators();
+            eventHandlingStrategy.blockInThread();
+            isStarted = Boolean.TRUE;
+        } else {
+            log.warn("Ignored attempt to start already running SocketInitiator.");
+        }
     }
 
     @Override
     public void stop(boolean forceDisconnect) {
-        synchronized (lock) {
+        if (isStarted.equals(Boolean.TRUE)) {
             try {
-                eventHandlingStrategy.stopHandlingMessages();
                 logoutAllSessions(forceDisconnect);
                 stopInitiators();
             } finally {
-                Session.unregisterSessions(getSessions());
-                isStarted = Boolean.FALSE;
-            }
-        }
-    }
-
-    private void initialize(boolean blockInThread) throws ConfigError {
-        synchronized (lock) {
-            if (isStarted.equals(Boolean.FALSE)) {
-                createSessionInitiators();
-                for (Session session : getSessionMap().values()) {
-                    Session.registerSession(session);
+                try {
+                    eventHandlingStrategy.stopHandlingMessages(true);
+                } finally {
+                    Session.unregisterSessions(getSessions(), true);
+                    clearConnectorSessions();
+                    isStarted = Boolean.FALSE;
                 }
-                startInitiators();
-                if (blockInThread) {
-                    eventHandlingStrategy.blockInThread();
-                } else {
-                    eventHandlingStrategy.block();
-                }
-                isStarted = Boolean.TRUE;
-            } else {
-                log.warn("Ignored attempt to start already running SocketInitiator.");
             }
         }
     }

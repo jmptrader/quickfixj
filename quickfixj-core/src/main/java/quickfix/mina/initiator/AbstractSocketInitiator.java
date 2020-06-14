@@ -19,20 +19,10 @@
 
 package quickfix.mina.initiator;
 
-import java.net.SocketAddress;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
-
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.buffer.SimpleBufferAllocator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.Application;
 import quickfix.ConfigError;
 import quickfix.DefaultSessionFactory;
@@ -50,7 +40,22 @@ import quickfix.mina.EventHandlingStrategy;
 import quickfix.mina.NetworkingOptions;
 import quickfix.mina.ProtocolFactory;
 import quickfix.mina.SessionConnector;
+import quickfix.mina.ssl.SSLConfig;
 import quickfix.mina.ssl.SSLSupport;
+
+import java.net.SocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Abstract base class for socket initiators.
@@ -58,7 +63,9 @@ import quickfix.mina.ssl.SSLSupport;
 public abstract class AbstractSocketInitiator extends SessionConnector implements Initiator {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
-    private final Set<IoSessionInitiator> initiators = new HashSet<IoSessionInitiator>();
+    private final Set<IoSessionInitiator> initiators = new HashSet<>();
+    private final ScheduledExecutorService scheduledReconnectExecutor;
+    public static final String QFJ_RECONNECT_THREAD_PREFIX = "QFJ Reconnect Thread-";
 
     protected AbstractSocketInitiator(Application application,
             MessageStoreFactory messageStoreFactory, SessionSettings settings,
@@ -69,60 +76,109 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
 
     protected AbstractSocketInitiator(SessionSettings settings, SessionFactory sessionFactory)
             throws ConfigError {
+        this(settings, sessionFactory, 0);
+    }
+
+    protected AbstractSocketInitiator(Application application,
+            MessageStoreFactory messageStoreFactory, SessionSettings settings,
+            LogFactory logFactory, MessageFactory messageFactory, int numReconnectThreads) throws ConfigError {
+        this(settings, new DefaultSessionFactory(application, messageStoreFactory, logFactory,
+                messageFactory), numReconnectThreads);
+    }
+
+    protected AbstractSocketInitiator(SessionSettings settings, SessionFactory sessionFactory, int numReconnectThreads)
+            throws ConfigError {
         super(settings, sessionFactory);
         IoBuffer.setAllocator(new SimpleBufferAllocator());
         IoBuffer.setUseDirectBuffer(false);
+        if (numReconnectThreads > 0) {
+            scheduledReconnectExecutor = Executors.newScheduledThreadPool(numReconnectThreads, new QFScheduledReconnectThreadFactory());
+            ((ThreadPoolExecutor) scheduledReconnectExecutor).setMaximumPoolSize(numReconnectThreads);
+        } else {
+            scheduledReconnectExecutor = null;
+        }
     }
 
     protected void createSessionInitiators()
             throws ConfigError {
         try {
-            // QFJ698: clear() is needed on restart, otherwise the set gets filled up with
-            // more and more initiators which are not equal because the local port differs
-            initiators.clear();
             createSessions();
-            SessionSettings settings = getSettings();
             for (final Session session : getSessionMap().values()) {
-                final SessionID sessionID = session.getSessionID();
-                final int[] reconnectingIntervals = getReconnectIntervalInSeconds(sessionID);
-
-                final SocketAddress[] socketAddresses = getSocketAddresses(sessionID);
-                if (socketAddresses.length == 0) {
-                    throw new ConfigError("Must specify at least one socket address");
-                }
-
-                SocketAddress localAddress = getLocalAddress(settings, sessionID);
-
-                final NetworkingOptions networkingOptions = new NetworkingOptions(getSettings()
-                        .getSessionProperties(sessionID, true));
-
-                boolean sslEnabled = false;
-                if (getSettings().isSetting(sessionID, SSLSupport.SETTING_USE_SSL)) {
-                    sslEnabled = BooleanConverter.convert(getSettings().getString(sessionID,
-                            SSLSupport.SETTING_USE_SSL));
-                }
-                final String keyStoreName = SSLSupport.getKeystoreName(getSettings(), sessionID);
-                final String keyStorePassword = SSLSupport.getKeystorePasswd(getSettings(),
-                        sessionID);
-                final String strEnableProtocole = SSLSupport.getEnableProtocole(getSettings(),
-                        sessionID);
-                final String[] enableProtocole = strEnableProtocole != null ? strEnableProtocole
-                        .split(",") : null;
-                final String strCipherSuites = SSLSupport.getCipherSuite(getSettings(), sessionID);
-                final String[] cipherSuites = strCipherSuites != null
-                        ? strCipherSuites.split(",")
-                        : null;
-
-                final IoSessionInitiator ioSessionInitiator = new IoSessionInitiator(session,
-                        socketAddresses, localAddress, reconnectingIntervals, getScheduledExecutorService(),
-                        networkingOptions, getEventHandlingStrategy(), getIoFilterChainBuilder(),
-                        sslEnabled, keyStoreName, keyStorePassword, enableProtocole, cipherSuites);
-
-                initiators.add(ioSessionInitiator);
+                createInitiator(session);
             }
         } catch (final FieldConvertError e) {
             throw new ConfigError(e);
         }
+    }
+
+    private void createInitiator(final Session session) throws ConfigError, FieldConvertError {
+                
+        SessionSettings settings = getSettings();
+        final SessionID sessionID = session.getSessionID();
+        final int[] reconnectingIntervals = getReconnectIntervalInSeconds(sessionID);
+
+        final SocketAddress[] socketAddresses = getSocketAddresses(sessionID);
+        if (socketAddresses.length == 0) {
+            throw new ConfigError("Must specify at least one socket address");
+        }
+
+        SocketAddress localAddress = getLocalAddress(settings, sessionID);
+
+        final NetworkingOptions networkingOptions = new NetworkingOptions(getSettings()
+                .getSessionProperties(sessionID, true));
+
+        boolean sslEnabled = false;
+        SSLConfig sslConfig = null;
+        if (getSettings().isSetting(sessionID, SSLSupport.SETTING_USE_SSL)
+                && BooleanConverter.convert(getSettings().getString(sessionID, SSLSupport.SETTING_USE_SSL))) {
+            sslEnabled = true;
+            sslConfig = SSLSupport.getSslConfig(getSettings(), sessionID);
+        }
+
+        String proxyUser = null;
+        String proxyPassword = null;
+        String proxyHost = null;
+
+        String proxyType = null;
+        String proxyVersion = null;
+
+        String proxyWorkstation = null;
+        String proxyDomain = null;
+
+        int proxyPort = -1;
+
+        if (getSettings().isSetting(sessionID, Initiator.SETTING_PROXY_TYPE)) {
+            proxyType = settings.getString(sessionID, Initiator.SETTING_PROXY_TYPE);
+            if (getSettings().isSetting(sessionID, Initiator.SETTING_PROXY_VERSION)) {
+                proxyVersion = settings.getString(sessionID,
+                                                  Initiator.SETTING_PROXY_VERSION);
+            }
+
+            if (getSettings().isSetting(sessionID, Initiator.SETTING_PROXY_USER)) {
+                proxyUser = settings.getString(sessionID, Initiator.SETTING_PROXY_USER);
+                proxyPassword = settings.getString(sessionID,
+                                                   Initiator.SETTING_PROXY_PASSWORD);
+            }
+            if (getSettings().isSetting(sessionID, Initiator.SETTING_PROXY_WORKSTATION)
+                    && getSettings().isSetting(sessionID, Initiator.SETTING_PROXY_DOMAIN)) {
+                proxyWorkstation = settings.getString(sessionID,
+                                                      Initiator.SETTING_PROXY_WORKSTATION);
+                proxyDomain = settings.getString(sessionID, Initiator.SETTING_PROXY_DOMAIN);
+            }
+
+            proxyHost = settings.getString(sessionID, Initiator.SETTING_PROXY_HOST);
+            proxyPort = (int) settings.getLong(sessionID, Initiator.SETTING_PROXY_PORT);
+        }
+
+        ScheduledExecutorService scheduledExecutorService = (scheduledReconnectExecutor != null ? scheduledReconnectExecutor : getScheduledExecutorService());
+        final IoSessionInitiator ioSessionInitiator = new IoSessionInitiator(session,
+                socketAddresses, localAddress, reconnectingIntervals,
+                scheduledExecutorService, networkingOptions,
+                getEventHandlingStrategy(), getIoFilterChainBuilder(), sslEnabled, sslConfig,
+                proxyType, proxyVersion, proxyHost, proxyPort, proxyUser, proxyPassword, proxyDomain, proxyWorkstation);
+
+        initiators.add(ioSessionInitiator);
+
     }
 
     // QFJ-482
@@ -140,27 +196,24 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
                 port = (int) settings.getLong(sessionID, Initiator.SETTING_SOCKET_LOCAL_PORT);
             }
             localAddress = ProtocolFactory.createSocketAddress(ProtocolFactory.SOCKET, host, port);
-            if (log.isInfoEnabled()) {
-                log.info("Using initiator local host: " + localAddress);
-            }
+            log.info("Using initiator local host: {}", localAddress);
         }
         return localAddress;
     }
 
     private void createSessions() throws ConfigError, FieldConvertError {
         final SessionSettings settings = getSettings();
-        boolean continueInitOnError = false;
-        if (settings.isSetting(SessionFactory.SETTING_CONTINUE_INIT_ON_ERROR)) {
-            continueInitOnError = settings.getBool(SessionFactory.SETTING_CONTINUE_INIT_ON_ERROR);
-        }
+        boolean continueInitOnError = isContinueInitOnError();
 
-        final Map<SessionID, Session> initiatorSessions = new HashMap<SessionID, Session>();
+        final Map<SessionID, Session> initiatorSessions = new HashMap<>();
         for (final Iterator<SessionID> i = settings.sectionIterator(); i.hasNext();) {
             final SessionID sessionID = i.next();
             if (isInitiatorSession(sessionID)) {
                 try {
-                    final Session quickfixSession = createSession(sessionID);
-                    initiatorSessions.put(sessionID, quickfixSession);
+                    if (!settings.isSetting(sessionID, SETTING_DYNAMIC_SESSION) || !settings.getBool(sessionID, SETTING_DYNAMIC_SESSION)) {
+                        final Session quickfixSession = createSession(sessionID);
+                        initiatorSessions.put(sessionID, quickfixSession);
+                    }
                 } catch (final Throwable e) {
                     if (continueInitOnError) {
                         log.error("error during session initialization, continuing...", e);
@@ -171,10 +224,19 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
                 }
             }
         }
-        if (initiatorSessions.isEmpty()) {
-            throw new ConfigError("no initiators in settings");
-        }
         setSessions(initiatorSessions);
+    }
+    
+    public void createDynamicSession(SessionID sessionID) throws ConfigError {
+
+        try {
+            Session session = createSession(sessionID);
+            super.addDynamicSession(session);
+            createInitiator(session);
+            startInitiators();
+        } catch (final FieldConvertError e) {
+            throw new ConfigError(e);
+        }
     }
 
     private int[] getReconnectIntervalInSeconds(SessionID sessionID) throws ConfigError {
@@ -196,7 +258,7 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
 
     private SocketAddress[] getSocketAddresses(SessionID sessionID) throws ConfigError {
         final SessionSettings settings = getSettings();
-        final ArrayList<SocketAddress> addresses = new ArrayList<SocketAddress>();
+        final ArrayList<SocketAddress> addresses = new ArrayList<>();
         for (int index = 0;; index++) {
             try {
                 final String protocolKey = Initiator.SETTING_SOCKET_CONNECT_PROTOCOL
@@ -227,7 +289,7 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
                     break;
                 }
             } catch (final FieldConvertError e) {
-                throw (ConfigError) new ConfigError(e.getMessage()).initCause(e);
+                throw new ConfigError(e.getMessage(), e);
             }
         }
 
@@ -253,8 +315,9 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
     }
 
     protected void stopInitiators() {
-        for (final IoSessionInitiator initiator : initiators) {
-            initiator.stop();
+        for (Iterator<IoSessionInitiator> iterator = initiators.iterator(); iterator.hasNext();) {
+            iterator.next().stop();
+            iterator.remove();
         }
         super.stopSessionTimer();
     }
@@ -269,4 +332,18 @@ public abstract class AbstractSocketInitiator extends SessionConnector implement
     }
 
     protected abstract EventHandlingStrategy getEventHandlingStrategy();
+    
+    
+    private static class QFScheduledReconnectThreadFactory implements ThreadFactory {
+
+        private static final AtomicInteger COUNTER = new AtomicInteger(1);
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, QFJ_RECONNECT_THREAD_PREFIX + COUNTER.getAndIncrement());
+            thread.setDaemon(true);
+            return thread;
+        }
+    }
+
 }

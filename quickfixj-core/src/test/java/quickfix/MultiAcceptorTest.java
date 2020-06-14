@@ -19,37 +19,49 @@
 
 package quickfix;
 
-import java.util.HashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import junit.framework.TestCase;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.field.TestReqID;
 import quickfix.fix42.TestRequest;
 import quickfix.mina.ProtocolFactory;
 
-public class MultiAcceptorTest extends TestCase {
+import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import org.apache.mina.util.AvailablePortFinder;
+import org.junit.After;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import org.junit.Test;
+
+public class MultiAcceptorTest {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private TestAcceptorApplication testAcceptorApplication;
 
-    protected void tearDown() throws Exception {
-        super.tearDown();
+    @After
+    public void tearDown() throws Exception {
         testAcceptorApplication.tearDown();
     }
 
+    @Test
     public void testMultipleAcceptor() throws Exception {
         testAcceptorApplication = new TestAcceptorApplication(3);
         Acceptor acceptor = null;
         Initiator initiator = null;
         try {
-            acceptor = createAcceptor();
+            int freePort1 = AvailablePortFinder.getNextAvailable();
+            int freePort2 = AvailablePortFinder.getNextAvailable();
+            int freePort3 = AvailablePortFinder.getNextAvailable();
+
+            acceptor = createAcceptor(freePort1, freePort2, freePort3, false);
             acceptor.start();
 
-            initiator = createInitiator(false);
+            initiator = createInitiator(false, freePort1, freePort2, freePort3);
             initiator.start();
 
             testAcceptorApplication.waitForLogon();
@@ -75,16 +87,21 @@ public class MultiAcceptorTest extends TestCase {
         }
     }
 
+    @Test
     public void testMessageSentOnWrongAcceptor() throws Exception {
         testAcceptorApplication = new TestAcceptorApplication(2);
         Acceptor acceptor = null;
         Initiator initiator = null;
 
         try {
-            acceptor = createAcceptor();
+            int freePort1 = AvailablePortFinder.getNextAvailable();
+            int freePort2 = AvailablePortFinder.getNextAvailable();
+            int freePort3 = AvailablePortFinder.getNextAvailable();
+
+            acceptor = createAcceptor(freePort1, freePort2, freePort3, false);
             acceptor.start();
 
-            initiator = createInitiator(true);
+            initiator = createInitiator(true, freePort1, freePort2, freePort3);
             initiator.start();
 
             testAcceptorApplication.waitForLogon();
@@ -113,6 +130,28 @@ public class MultiAcceptorTest extends TestCase {
         }
     }
 
+    @Test
+    public void testContinueInitializationOnError() throws Exception {
+        testAcceptorApplication = new TestAcceptorApplication(3);
+        int freePort1 = AvailablePortFinder.getNextAvailable();
+        int freePort2 = AvailablePortFinder.getNextAvailable();
+        int freePort3 = AvailablePortFinder.getNextAvailable();
+
+        Acceptor acceptor = createAcceptor(freePort1, freePort2, freePort3, true);
+        acceptor.start();
+
+        List<SessionID> acceptorSessions = acceptor.getSessions();
+        assertEquals(2, acceptorSessions.size());
+        SessionID session1 = new SessionID(FixVersions.BEGINSTRING_FIX42, "ACCEPTOR-" + 1, "INITIATOR");
+        SessionID session2 = new SessionID(FixVersions.BEGINSTRING_FIX42, "ACCEPTOR-" + 2, "INITIATOR");
+        SessionID session3 = new SessionID(FixVersions.BEGINSTRING_FIX42, "ACCEPTOR-" + 3, "INITIATOR");
+        assertTrue(acceptorSessions.contains(session1));
+        assertFalse(acceptorSessions.contains(session2));
+        assertTrue(acceptorSessions.contains(session3));
+
+        acceptor.stop(true);
+    }
+
     private void doSessionDispatchingTest(int i) throws SessionNotFound, InterruptedException,
             FieldNotFound {
         TestRequest message = new TestRequest();
@@ -131,7 +170,7 @@ public class MultiAcceptorTest extends TestCase {
     }
 
     private static class TestAcceptorApplication extends ApplicationAdapter {
-        private final HashMap<SessionID, Message> sessionMessages = new HashMap<SessionID, Message>();
+        private final HashMap<SessionID, Message> sessionMessages = new HashMap<>();
         private final CountDownLatch logonLatch;
         private CountDownLatch messageLatch;
 
@@ -190,9 +229,9 @@ public class MultiAcceptorTest extends TestCase {
         }
     }
 
-    private Initiator createInitiator(boolean wrongPort) throws ConfigError {
+    private Initiator createInitiator(boolean wrongPort, int freePort1, int freePort2, int freePort3) throws ConfigError {
         SessionSettings settings = new SessionSettings();
-        HashMap<Object, Object> defaults = new HashMap<Object, Object>();
+        HashMap<Object, Object> defaults = new HashMap<>();
         defaults.put("ConnectionType", "initiator");
         defaults.put("StartTime", "00:00:00");
         defaults.put("EndTime", "00:00:00");
@@ -203,12 +242,12 @@ public class MultiAcceptorTest extends TestCase {
         settings.setString("BeginString", FixVersions.BEGINSTRING_FIX42);
         settings.set(defaults);
 
-        configureInitiatorForSession(settings, 1, 10001);
-        configureInitiatorForSession(settings, 2, 10002);
-        configureInitiatorForSession(settings, 3, wrongPort ? 1000 : 10003);
+        configureInitiatorForSession(settings, 1, freePort1);
+        configureInitiatorForSession(settings, 2, freePort2);
+        configureInitiatorForSession(settings, 3, wrongPort ? 1000 : freePort3);
 
         MessageStoreFactory factory = new MemoryStoreFactory();
-        quickfix.LogFactory logFactory = new ScreenLogFactory(true, true, true);
+        quickfix.LogFactory logFactory = new SLF4JLogFactory(new SessionSettings());
         return new SocketInitiator(new ApplicationAdapter() {
         }, factory, settings, logFactory, new DefaultMessageFactory());
     }
@@ -220,9 +259,9 @@ public class MultiAcceptorTest extends TestCase {
         settings.setString(sessionID, "SocketConnectPort", Integer.toString(port));
     }
 
-    private Acceptor createAcceptor() throws ConfigError {
+    private Acceptor createAcceptor(int freePort1, int freePort2, int freePort3, boolean addFaultySession) throws ConfigError {
         SessionSettings settings = new SessionSettings();
-        HashMap<Object, Object> defaults = new HashMap<Object, Object>();
+        HashMap<Object, Object> defaults = new HashMap<>();
         defaults.put("ConnectionType", "acceptor");
         defaults.put("StartTime", "00:00:00");
         defaults.put("EndTime", "00:00:00");
@@ -230,14 +269,25 @@ public class MultiAcceptorTest extends TestCase {
         defaults.put(SessionSettings.TARGETCOMPID, "TW");
         defaults.put("BeginString", "FIX.4.2");
         defaults.put("ResetOnDisconnect", "Y");
+        if (addFaultySession) {
+            defaults.put("UseDataDictionary", "Y");
+            defaults.put("DataDictionary", "FIX42.xml");
+            defaults.put(SessionFactory.SETTING_CONTINUE_INIT_ON_ERROR, "Y");
+        }
         settings.set(defaults);
 
-        configureAcceptorForSession(settings, 1, 10001);
-        configureAcceptorForSession(settings, 2, 10002);
-        configureAcceptorForSession(settings, 3, 10003);
+        configureAcceptorForSession(settings, 1, freePort1);
+        configureAcceptorForSession(settings, 2, freePort2);
+        configureAcceptorForSession(settings, 3, freePort3);
+
+        if (addFaultySession) {
+            // set a non-existent dictionary to let one session creation fail
+            SessionID faultySessionID = new SessionID(FixVersions.BEGINSTRING_FIX42, "ACCEPTOR-" + 2, "INITIATOR");
+            settings.setString(faultySessionID, "DataDictionary", "unknown.xml");
+        }
 
         MessageStoreFactory factory = new MemoryStoreFactory();
-        quickfix.LogFactory logFactory = new ScreenLogFactory(true, true, true);
+        quickfix.LogFactory logFactory = new SLF4JLogFactory(new SessionSettings());
         return new SocketAcceptor(testAcceptorApplication, factory, settings, logFactory,
                 new DefaultMessageFactory());
     }

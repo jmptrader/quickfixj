@@ -19,14 +19,15 @@
 
 package quickfix.mina;
 
-import java.net.SocketAddress;
-
-import org.apache.mina.core.session.IoSession;
 import org.apache.mina.core.future.WriteFuture;
+import org.apache.mina.core.session.IoSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.Responder;
+import quickfix.Session;
+
+import java.io.IOException;
+import java.net.SocketAddress;
 
 /**
  * The class that partially integrates the QuickFIX/J Session to
@@ -37,25 +38,37 @@ public class IoSessionResponder implements Responder {
     private final IoSession ioSession;
     private final boolean synchronousWrites;
     private final long synchronousWriteTimeout;
+    private final int maxScheduledWriteRequests;
 
-    public IoSessionResponder(IoSession session, boolean synchronousWrites, long synchronousWriteTimeout) {
+    public IoSessionResponder(IoSession session, boolean synchronousWrites, long synchronousWriteTimeout, int maxScheduledWriteRequests) {
         ioSession = session;
         this.synchronousWrites = synchronousWrites;
         this.synchronousWriteTimeout = synchronousWriteTimeout;
+        this.maxScheduledWriteRequests = maxScheduledWriteRequests;
     }
 
     @Override
     public boolean send(String data) {
+        // Check for and disconnect slow consumers.
+        if (maxScheduledWriteRequests > 0 && ioSession.getScheduledWriteMessages() >= maxScheduledWriteRequests) {
+            Session qfjSession = (Session) ioSession.getAttribute(SessionConnector.QF_SESSION);
+            try {
+                qfjSession.disconnect("Slow consumer", true);
+            } catch (IOException e) {
+            }
+            return false;
+        }
+
         // The data is written asynchronously in a MINA thread
         WriteFuture future = ioSession.write(data);
         if (synchronousWrites) {
             try {
                 if (!future.awaitUninterruptibly(synchronousWriteTimeout)) {
-                    log.error("Synchronous write timed out after " + synchronousWriteTimeout + "ms");
+                    log.error("Synchronous write timed out after {}ms", synchronousWriteTimeout);
                     return false;
                 }
             } catch (RuntimeException e) {
-                log.error("Synchronous write failed: " + e.getMessage());
+                log.error("Synchronous write failed: {}", e.getMessage());
                 return false;
             }
         }
@@ -64,30 +77,13 @@ public class IoSessionResponder implements Responder {
 
     @Override
     public void disconnect() {
-        waitForScheduleMessagesToBeWritten();
         // We cannot call join() on the CloseFuture returned
         // by the following call. We are using a minimal
         // threading model and calling join will prevent the
         // close event from being processed by this thread (if
         // this thread is the MINA IO processor thread.
-        ioSession.close(true);
-    }
-
-    private void waitForScheduleMessagesToBeWritten() {
-        // This is primarily to allow logout messages to be sent before
-        // closing the socket. Future versions of MINA may have support
-        // in close() to force all pending messages to be written before
-        // the socket close is performed.
-        //
-        // Only wait for a limited time since MINA may deadlock
-        // in some rare cases where a socket dies in a strange way.
-        for (int i = 0; i < 5 && ioSession.getScheduledWriteMessages() > 0; i++) {
-            try {
-                Thread.sleep(10L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
+        ioSession.closeOnFlush();
+        ioSession.setAttribute(SessionConnector.QFJ_RESET_IO_CONNECTOR, Boolean.TRUE);
     }
 
     @Override
@@ -99,4 +95,7 @@ public class IoSessionResponder implements Responder {
         return null;
     }
 
+    IoSession getIoSession() {
+        return ioSession;
+    }
 }

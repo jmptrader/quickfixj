@@ -19,13 +19,21 @@
 
 package quickfix.test.acceptance;
 
+import quickfix.FieldNotFound;
+import quickfix.IncorrectTagValue;
+import quickfix.Message;
+import quickfix.Session;
+import quickfix.SessionID;
+import quickfix.SessionNotFound;
+import quickfix.UnsupportedMessageType;
+import quickfix.field.ClOrdID;
+import quickfix.field.PossResend;
+
 import java.util.HashSet;
-import quickfix.*;
-import quickfix.field.*;
 
 class ATMessageCracker extends quickfix.MessageCracker {
 
-    private HashSet<Pair> orderIDs = new HashSet<Pair>();
+    private final HashSet<Pair> orderIDs = new HashSet<>();
 
     public void reset() {
         orderIDs.clear();
@@ -53,6 +61,16 @@ class ATMessageCracker extends quickfix.MessageCracker {
     }
 
     public void onMessage(quickfix.fix50.NewOrderSingle message, SessionID sessionID)
+            throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
+        process(message, sessionID);
+    }
+
+    public void onMessage(quickfix.fix50sp1.NewOrderSingle message, SessionID sessionID)
+            throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
+        process(message, sessionID);
+    }
+
+    public void onMessage(quickfix.fix50sp2.NewOrderSingle message, SessionID sessionID)
             throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
         process(message, sessionID);
     }

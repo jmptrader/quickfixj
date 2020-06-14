@@ -19,6 +19,8 @@
 
 package quickfix;
 
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -28,15 +30,22 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Properties;
 import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import junit.framework.TestCase;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
 
-public class SessionSettingsTest extends TestCase {
+public class SessionSettingsTest {
 
-    public SessionSettingsTest(String name) {
-        super(name);
-    }
-
+    @Test
     public void testExtendedSettings() throws ConfigError {
         String settingsString = "";
         settingsString += "[SESSION]\n";
@@ -59,6 +68,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("NYC", id.getTargetLocationID());
     }
 
+    @Test
     public void testSettings() throws Exception {
         final SessionSettings settings = setUpSession();
 
@@ -119,14 +129,15 @@ public class SessionSettingsTest extends TestCase {
         assertFalse(sectionIterator.hasNext());
     }
 
+    @Test
     public void testMergedProperties() throws Exception {
         final SessionSettings settings = setUpSession();
         final SessionID sessionID = new SessionID("FIX.4.2", "TW", "CLIENT1");
 
         // Only defined in defaults
         assertEquals("1234", settings.getSessionProperties(sessionID, true).get("TestLong"));
-        assertEquals(null, settings.getSessionProperties(sessionID, false).get("TestLong"));
-        assertEquals(null, settings.getDefaultProperties().get("TargetCompID"));
+        assertNull(settings.getSessionProperties(sessionID, false).get("TestLong"));
+        assertNull(settings.getDefaultProperties().get("TargetCompID"));
     }
 
     private SessionSettings setUpSession() throws ConfigError {
@@ -134,6 +145,14 @@ public class SessionSettingsTest extends TestCase {
     }
 
     public static SessionSettings setUpSession(String extra) throws ConfigError {
+        String settingsString = getDefaultSettingString();
+        if (extra != null) {
+            settingsString += extra;
+        }
+        return createSettingsFromString(settingsString);
+    }
+
+    private static String getDefaultSettingString() {
         String settingsString = "";
         settingsString += "#comment\n";
         settingsString += "[DEFAULT]\n";
@@ -160,10 +179,7 @@ public class SessionSettingsTest extends TestCase {
         settingsString += "BeginString=FIX.4.2\n";
         settingsString += "TargetCompID=CLIENT2\n";
         settingsString += "DataDictionary=../spec/FIX42.xml\n";
-        if (extra != null) {
-            settingsString += extra;
-        }
-        return createSettingsFromString(settingsString);
+        return settingsString;
     }
 
     private static SessionSettings createSettingsFromString(String settingsString)
@@ -172,6 +188,13 @@ public class SessionSettingsTest extends TestCase {
         return new SessionSettings(cfg);
     }
 
+    private static SessionSettings createSettingsFromString(String settingsString, Properties variableValues)
+            throws ConfigError {
+        final ByteArrayInputStream cfg = new ByteArrayInputStream(settingsString.getBytes());
+        return new SessionSettings(cfg, variableValues);
+    }
+
+    @Test
     public void testSessionKeyIterator() throws Exception {
         final SessionSettings settings = setUpSession();
         final Iterator<SessionID> itr = settings.sectionIterator();
@@ -182,16 +205,18 @@ public class SessionSettingsTest extends TestCase {
         }
     }
 
+    @Test
     public void testMethodsForDefaults() throws Exception {
         final SessionSettings settings = setUpSession();
         assertEquals("acceptor", settings.getString("ConnectionType"));
         assertEquals(1234, settings.getLong("TestLong"));
         assertEquals(12.34, settings.getDouble("TestDouble"), 0);
-        assertEquals(true, settings.getBool("TestBoolTrue"));
+        assertTrue(settings.getBool("TestBoolTrue"));
         assertTrue(settings.isSetting("ConnectionType"));
         assertFalse(settings.isSetting("bogus"));
     }
 
+    @Test
     public void testDefaultsSet() throws Exception {
         final SessionSettings settings = setUpSession();
         final Properties defaults = new Properties();
@@ -205,6 +230,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("bargle", settings.getString("FileStorePath"));
     }
 
+    @Test
     public void testSpecialCharactersInKeys() throws Exception {
         final SessionSettings settings = setUpSession("$$$foo bar.baz@@@=value\n");
         final SessionID sessionID2 = new SessionID("FIX.4.2", "TW", "CLIENT2");
@@ -212,6 +238,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("value", settings.getString(sessionID2, "$$$foo bar.baz@@@"));
     }
 
+    @Test
     public void testStrangeCharactersInValues() throws Exception {
         final SessionSettings settings = setUpSession("label=   This is a test? Yes, it is.\n");
         final SessionID sessionID2 = new SessionID("FIX.4.2", "TW", "CLIENT2");
@@ -219,6 +246,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("This is a test? Yes, it is.", settings.getString(sessionID2, "label"));
     }
 
+    @Test
     public void testFinalCommentWithoutTrailingNewline() throws Exception {
         final SessionSettings settings = setUpSession("label=no trailing newline\n# a comment without trailing newline");
         final SessionID sessionID2 = new SessionID("FIX.4.2", "TW", "CLIENT2");
@@ -226,10 +254,11 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("no trailing newline", settings.getString(sessionID2, "label"));
     }
 
+    @Test
     public void testDefaultSetters() throws Exception {
         final SessionSettings settings = setUpSession();
         settings.setBool("bool", true);
-        assertEquals("wrong default value", true, settings.getBool("bool"));
+        assertTrue("wrong default value", settings.getBool("bool"));
         settings.setDouble("double", 10.00);
         assertEquals("wrong default value", 10.00, settings.getDouble("double"), 0);
         settings.setLong("long", 1000L);
@@ -238,6 +267,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("wrong default value", "xyz", settings.getString("string"));
     }
 
+    @Test
     public void testVariableInterpolationWithDefaultValueSource() throws Exception {
         System.setProperty("test.1", "FOO");
         System.setProperty("test.2", "BAR");
@@ -251,6 +281,7 @@ public class SessionSettingsTest extends TestCase {
     }
 
     // QFJ-204
+    @Test
     public void testVariableInterpolationInDefaultSection() throws Exception {
         System.setProperty("sender", "SENDER");
         System.setProperty("target", "TARGET");
@@ -267,6 +298,7 @@ public class SessionSettingsTest extends TestCase {
         assertEquals("wrong value", "TARGET", settings.getString(sessionID, "TargetCompID"));
     }
 
+    @Test
     public void testVariableInterpolationWithNoSysProps() throws Exception {
         System.setProperty("test.1", "FOO");
         System.setProperty("test.2", "BAR");
@@ -277,6 +309,7 @@ public class SessionSettingsTest extends TestCase {
                 settings.getString("VariableTest"));
     }
 
+    @Test
     public void testVariableInterpolationWithProps() throws Exception {
         System.setProperty("test.2", "BAR");
         final Properties properties = new Properties(System.getProperties());
@@ -291,11 +324,57 @@ public class SessionSettingsTest extends TestCase {
                 settings.getString("VariableTest"));
     }
 
+    @Test
+    public void testVariableInterpolationWithCustomPropsForSessionIdFromInputStream() throws Exception {
+        System.setProperty("test.2", "BAR");
+        final Properties properties = new Properties(System.getProperties());
+        properties.setProperty("test.1", "FOO");
+
+        String settingsString = getDefaultSettingString();
+        settingsString += "\n";
+        settingsString += "[SESSION]\n";
+        settingsString += "BeginString=FIX.4.2\n";
+        settingsString += "TargetCompID=CLIENT3_${test.1}_${test.2}\n";
+        settingsString += "DataDictionary=../spec/FIX42.xml\n";
+
+        final SessionSettings settings = createSettingsFromString(settingsString, properties);
+
+        SessionID sessionId = findSessionId(settings, "CLIENT3");
+        assertNotNull("Settings for CLIENT3 are not found", sessionId);
+        assertEquals("Wrong TargetCompID", "CLIENT3_FOO_BAR", sessionId.getTargetCompID());
+    }
+
+    private SessionID findSessionId(SessionSettings settings, String targetCompIdPrefix) {
+        Iterator<SessionID> sessionIDIterator = settings.sectionIterator();
+        while (sessionIDIterator.hasNext()) {
+            SessionID sessionID = sessionIDIterator.next();
+            if (sessionID.getTargetCompID().startsWith(targetCompIdPrefix)) {
+                return sessionID;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void testVariableInterpolationWithCustomPropsForSessionIdFromFile() throws Exception {
+        System.setProperty("CLIENT_PLACEHOLDER2", "BAR");
+        final Properties properties = new Properties(System.getProperties());
+        properties.setProperty("CLIENT_PLACEHOLDER1", "FOO");
+
+        final SessionSettings settings = new SessionSettings(getConfigurationFileName(), properties);
+
+        SessionID sessionId = findSessionId(settings, "CLIENT3");
+        assertNotNull("Settings for CLIENT3 are not found", sessionId);
+        assertEquals("Wrong TargetCompID", "CLIENT3_FOO_BAR", sessionId.getTargetCompID());
+}
+
+    @Test
     public void testDefaultConstructor() {
         new SessionSettings();
         // Passes if no exception is thrown
     }
 
+    @Test
     public void testConfigError() throws Exception {
         final InputStream cfg = new InputStream() {
 
@@ -313,6 +392,7 @@ public class SessionSettingsTest extends TestCase {
         }
     }
 
+    @Test
     public void testSettingsToStream() throws Exception {
         final SessionSettings expectedSettings = setUpSession();
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -345,12 +425,14 @@ public class SessionSettingsTest extends TestCase {
         }
     }
 
+    @Test
     public void testToString() throws Exception {
         final SessionSettings expectedSettings = setUpSession();
         final String actualString = expectedSettings.toString();
         assertSettingsEqual(expectedSettings, actualString);
     }
 
+    @Test
     public void testParseSettingReconnectInterval() {
         assertTrue(Arrays.equals(null, SessionSettings.parseSettingReconnectInterval("")));
         assertTrue(Arrays.equals(null, SessionSettings.parseSettingReconnectInterval(null)));
@@ -388,6 +470,130 @@ public class SessionSettingsTest extends TestCase {
         } catch (final InvalidParameterException ex) {
             // OK
         }
+    }
+
+    @Test
+    public void testConcurrentAccess() throws ConfigError, InterruptedException {
+        final Map<Object, Object> defaultSettings = createDefaultSettings();
+
+        final Map<Object, Object> pricingSection = createPricingSection();
+        final SessionID pricingSessionID = new SessionID("FIX.4.2:FOOBAR_PRICING->*");
+
+        final Map<Object, Object> tradingSection = createTradingSection();
+        final SessionID tradingSessionID = new SessionID("FIX.4.2:FOOBAR_TRADING->*");
+
+        final SessionSettings sessionSettings = new SessionSettings();
+        sessionSettings.set(new Dictionary(null, defaultSettings));
+        sessionSettings.set(pricingSessionID, new Dictionary("sessions", pricingSection));
+        sessionSettings.set(tradingSessionID, new Dictionary("sessions", tradingSection));
+
+
+        final int numClients = 500;
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        final CountDownLatch countDownLatch = new CountDownLatch(numClients);
+
+        final AtomicBoolean testHasPassed = new AtomicBoolean(true);
+        final Random random = new Random();
+
+        for (int i = 0; i < numClients; i++) {
+            final String clientPricingSessionIDString = "FIX.4.2:FOOBAR_PRICING->CLIENT" + i;
+            final String clientTradingSessionIDString = "FIX.4.2:FOOBAR_TRADING->CLIENT" + i;
+            final Thread clientThread = new Thread(() -> {
+                final Map<Object, Object> expectedClientPricingSettings = new HashMap<>();
+                expectedClientPricingSettings.putAll(defaultSettings);
+                expectedClientPricingSettings.putAll(pricingSection);
+
+                final Map<Object, Object> expectedClientTradingSettings = new HashMap<>();
+                expectedClientTradingSettings.putAll(defaultSettings);
+                expectedClientTradingSettings.putAll(tradingSection);
+
+                int randomSleep = random.nextInt(20);
+                try {
+                    // wait for everyone to be ready
+                    startLatch.await();
+
+                    // individual thread to sleep at random interval, to simulate spread connection attempt
+                    Thread.sleep(randomSleep);
+
+                    final SessionID clientPricingSessionID = new SessionID(clientPricingSessionIDString);
+                    sessionSettings.set(clientPricingSessionID, new Dictionary(clientPricingSessionIDString, expectedClientPricingSettings));
+
+                    final SessionID clientTradingSessionID = new SessionID(clientTradingSessionIDString);
+                    sessionSettings.set(clientTradingSessionID, new Dictionary(clientTradingSessionIDString, expectedClientTradingSettings));
+
+                    // sleep at the end, before we verify the outcome
+                    Thread.sleep(randomSleep);
+
+                    assertEquals("Default settings must be correct", defaultSettings, sessionSettings.get().toMap());
+                    assertEquals("Client pricing settings must be correct", expectedClientPricingSettings, sessionSettings.get(clientPricingSessionID).toMap());
+                    assertEquals("Client trading settings must be correct", expectedClientTradingSettings, sessionSettings.get(clientTradingSessionID).toMap());
+                } catch (final Throwable throwable) {
+                    testHasPassed.set(false);
+                    throwable.printStackTrace();
+                } finally {
+                    countDownLatch.countDown();
+                }
+            }, "CLIENT_THREAD_" + i);
+            clientThread.setDaemon(true);
+            clientThread.start();
+        }
+
+        // go go go , everyone!
+        startLatch.countDown();
+
+        // ok.. wait for everyone to finish
+        countDownLatch.await();
+
+        // verify test has passed
+        assertTrue(testHasPassed.get());
+    }
+
+    private Map<Object, Object> createTradingSection() {
+        final Map<Object, Object> tradingSection = new HashMap<>();
+        tradingSection.put("PersistMessages","Y");
+        tradingSection.put("SocketAcceptPort","7566");
+        tradingSection.put("DataDictionary","fix/FIX42-TRADING-2.4.xml");
+        tradingSection.put("ResetOnLogon","N");
+        tradingSection.put("MaxLatency","1");
+        return tradingSection;
+    }
+
+    private Map<Object, Object> createPricingSection() {
+        final Map<Object, Object> pricingSection = new HashMap<>();
+        pricingSection.put("PersistMessages","N");
+        pricingSection.put("SocketAcceptPort","7565");
+        pricingSection.put("DataDictionary","fix/FIX42-PRICING-2.4.xml");
+        pricingSection.put("ResetOnLogon","Y");
+        pricingSection.put("MaxLatency","120");
+        return pricingSection;
+    }
+
+    private Map<Object, Object> createDefaultSettings() {
+        final Map<Object, Object> defaultSettings = new HashMap<>();
+        defaultSettings.put("TimeZone", "UTC");
+        defaultSettings.put("StartDay", "Sunday");
+        defaultSettings.put("StartTime", "7:00:00");
+        defaultSettings.put("EndDay", "Friday");
+        defaultSettings.put("EndTime", "17:00:00");
+        defaultSettings.put("NonStopSession", "N");
+        defaultSettings.put("ConnectionType", "acceptor");
+        defaultSettings.put("HeartBtInt", "30");
+        defaultSettings.put("UseDataDictionary", "Y");
+        defaultSettings.put("ThreadModel", "ThreadPerSession");
+        defaultSettings.put("UseJmx", "Y");
+        defaultSettings.put("FileStorePath", "/home/wibowoa/var/lib/myApp");
+        defaultSettings.put("FileLogPath", "logs/fixlog");
+        defaultSettings.put("FileIncludeTimeStampForMessages", "Y");
+        defaultSettings.put("FileIncludeMilliseconds", "Y");
+        defaultSettings.put("CheckLatency", "Y");
+        defaultSettings.put("BeginString", "FIX.4.2");
+        defaultSettings.put("AcceptorTemplate", "Y");
+        defaultSettings.put("TargetCompID", "*");
+        return defaultSettings;
+    }
+
+    private String getConfigurationFileName() {
+        return "configWithSessionVariables.ini";
     }
 
 }

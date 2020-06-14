@@ -19,19 +19,11 @@
 
 package quickfix.mina.ssl;
 
-import java.util.HashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
 import junit.framework.TestCase;
-
 import org.apache.mina.core.filterchain.IoFilterAdapter;
-import org.apache.mina.core.filterchain.IoFilterChain;
-import org.apache.mina.core.filterchain.IoFilterChainBuilder;
 import org.apache.mina.core.session.IoSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import quickfix.ApplicationAdapter;
 import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
@@ -46,6 +38,10 @@ import quickfix.ThreadedSocketInitiator;
 import quickfix.mina.ProtocolFactory;
 import quickfix.test.acceptance.ATServer;
 import quickfix.test.util.ExpectedTestFailure;
+
+import java.util.HashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class SecureSocketTest extends TestCase {
     private final Logger log = LoggerFactory.getLogger(getClass());
@@ -68,17 +64,13 @@ public class SecureSocketTest extends TestCase {
             ThreadedSocketInitiator initiator = new ThreadedSocketInitiator(clientApplication,
                     new MemoryStoreFactory(), settings, new DefaultMessageFactory());
             final CountDownLatch exceptionCaught = new CountDownLatch(1);
-            initiator.setIoFilterChainBuilder(new IoFilterChainBuilder() {
-
-                public void buildFilterChain(IoFilterChain chain) throws Exception {
-                    chain.addLast("ExceptionCatcher", new IoFilterAdapter() {
-                        public void exceptionCaught(NextFilter nextFilter, IoSession session, Throwable cause) throws Exception {
-                            log.info("MINA exception: " + cause.getMessage());
-                            exceptionCaught.countDown();
-                        }
-                    });
+            initiator.setIoFilterChainBuilder(chain -> chain.addLast("ExceptionCatcher", new IoFilterAdapter() {
+                public void exceptionCaught(NextFilter nextFilter, IoSession session, Throwable cause) throws Exception {
+                    log.info("MINA exception: {}", cause.getMessage());
+                    exceptionCaught.countDown();
+                    nextFilter.exceptionCaught(session, cause);
                 }
-            });
+            }));
 
             try {
                 log.info("Do login");
@@ -98,24 +90,25 @@ public class SecureSocketTest extends TestCase {
     }
 
     public void testLogonWithCustomCertificate() throws Exception {
-        doLogonTest("test.cert", "testpassword");
+        doLogonTest("test.keystore", "quickfixjtestpw");
     }
 
     /**
      * This is more of an anti-test. To verify that the client-side initiator adds the
      * specified keystore/pwd to the SSL context, reset the pwd to be invalid.
-     * During startup, the socket initiator should fail b/c ssl context is misconfigured
+     * During startup, the socket initiator should fail because SSL context is mis-configured.
      * Thus, we verify that we use SSL keystore/pwd in client connection, since
-     * we don't have any easy way to get to any of the vars inside the client-side initiator
-     * Note that we have to use a unique cert here (not same as test.cert) so that it's not cached
-     * by another test so that there are no false failures.
+     * we don't have any easy way to get to any of the vars inside the client-side initiator.
+     * Note that we have to use a unique certificate here (not test.keystore)
+     * so that it's not cached by another test so that there are no false failures.
+     * The test-client.keystore key store is just a copy of test.keystore under a different name.
      */
     public void testLogonWithBadCertificateOnInitiatorSide() throws Exception {
         SessionID clientSessionID = new SessionID(FixVersions.BEGINSTRING_FIX42, "TW", "ISLD");
         SessionSettings settings = getClientSessionSettings(clientSessionID);
         // reset client side to invalid certs
-        settings.setString(SSLSupport.SETTING_KEY_STORE_NAME, "test-client.cert");
-        settings.setString(SSLSupport.SETTING_KEY_STORE_PWD, "bogus-pwd");
+        settings.setString(SSLSupport.SETTING_KEY_STORE_NAME, "test-client.keystore");
+        settings.setString(SSLSupport.SETTING_KEY_STORE_PWD, "wrong-pwd");
         ClientApplication clientApplication = new ClientApplication();
         final ThreadedSocketInitiator initiator = new ThreadedSocketInitiator(clientApplication,
                 new MemoryStoreFactory(), settings, new DefaultMessageFactory());
@@ -158,7 +151,7 @@ public class SecureSocketTest extends TestCase {
 
     private SessionSettings getClientSessionSettings(SessionID clientSessionID) {
         SessionSettings settings = new SessionSettings();
-        HashMap<Object, Object> defaults = new HashMap<Object, Object>();
+        HashMap<Object, Object> defaults = new HashMap<>();
         defaults.put("ConnectionType", "initiator");
         defaults.put("SocketConnectProtocol", ProtocolFactory.getTypeString(transportProtocol));
         defaults.put("SocketUseSSL", "Y");

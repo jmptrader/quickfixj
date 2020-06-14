@@ -1,4 +1,5 @@
-/*******************************************************************************
+/*
+ ******************************************************************************
  * Copyright (c) quickfixengine.org  All rights reserved.
  *
  * This file is part of the QuickFIX FIX Engine
@@ -19,15 +20,18 @@
 
 package quickfix.mina;
 
+import quickfix.*;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import quickfix.LogUtil;
-import quickfix.Message;
-import quickfix.Session;
-import quickfix.SessionID;
-import quickfix.SystemTime;
+import static quickfix.mina.QueueTrackers.newDefaultQueueTracker;
+import static quickfix.mina.QueueTrackers.newMultiSessionWatermarkTracker;
 
 /**
  * Processes messages for all sessions in a single thread.
@@ -35,14 +39,32 @@ import quickfix.SystemTime;
 public class SingleThreadedEventHandlingStrategy implements EventHandlingStrategy {
     public static final String MESSAGE_PROCESSOR_THREAD_NAME = "QFJ Message Processor";
     private final BlockingQueue<SessionMessageEvent> eventQueue;
+    private final QueueTracker<SessionMessageEvent> queueTracker;
     private final SessionConnector sessionConnector;
-    private volatile Thread messageProcessingThread;
+    private volatile ThreadAdapter messageProcessingThread;
     private volatile boolean isStopped;
+    private Executor executor;
     private long stopTime = 0L;
 
     public SingleThreadedEventHandlingStrategy(SessionConnector connector, int queueCapacity) {
         sessionConnector = connector;
-        eventQueue = new LinkedBlockingQueue<SessionMessageEvent>(queueCapacity);
+        eventQueue = new LinkedBlockingQueue<>(queueCapacity);
+        queueTracker = newDefaultQueueTracker(eventQueue);
+    }
+
+    public SingleThreadedEventHandlingStrategy(SessionConnector connector, int queueLowerWatermark, int queueUpperWatermark) {
+        sessionConnector = connector;
+        eventQueue = new LinkedBlockingQueue<>();
+        if (queueLowerWatermark > 0 && queueUpperWatermark > 0) {
+            queueTracker = newMultiSessionWatermarkTracker(eventQueue, queueLowerWatermark, queueUpperWatermark,
+                    evt -> evt.quickfixSession);
+        } else {
+            queueTracker = newDefaultQueueTracker(eventQueue);
+        }
+    }
+
+    public void setExecutor(Executor executor) {
+        this.executor = executor;
     }
 
     @Override
@@ -51,8 +73,9 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
             return;
         }
         try {
-            eventQueue.put(new SessionMessageEvent(quickfixSession, message));
+            queueTracker.put(new SessionMessageEvent(quickfixSession, message));
         } catch (InterruptedException e) {
+            isStopped = true;
             throw new RuntimeException(e);
         }
     }
@@ -62,14 +85,14 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
         return sessionConnector;
     }
 
-    public void block() {
+    private void block() {
         while (true) {
             synchronized (this) {
                 if (isStopped) {
                     if (!eventQueue.isEmpty()) {
-                        final LinkedBlockingQueue<SessionMessageEvent> tempQueue = new LinkedBlockingQueue<SessionMessageEvent>();
-                        eventQueue.drainTo(tempQueue);
-                        for (SessionMessageEvent event : tempQueue) {
+                        final List<SessionMessageEvent> tempList = new ArrayList<>(eventQueue.size());
+                        queueTracker.drainTo(tempList);
+                        for (SessionMessageEvent event : tempList) {
                             event.processMessage();
                         }
                     }
@@ -80,8 +103,8 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
                         sessionConnector.stopSessionTimer();
                         // reset the stoptime
                         stopTime = 0;
-                        return;
                     }
+                    return;
                 }
             }
             try {
@@ -90,13 +113,13 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
                     event.processMessage();
                 }
             } catch (InterruptedException e) {
-                // ignore
+                Thread.currentThread().interrupt();
             }
         }
     }
 
     private SessionMessageEvent getMessage() throws InterruptedException {
-        return eventQueue.poll(THREAD_WAIT_FOR_MESSAGE_MS, TimeUnit.MILLISECONDS);
+        return queueTracker.poll(THREAD_WAIT_FOR_MESSAGE_MS, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -104,32 +127,24 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
      * If thread is still alive, an attempt is made to stop it.
      * An IllegalStateException is thrown if stopping the old thread
      * was not successful.
-     * 
+     *
      * This method must not be called by several threads concurrently.
      */
     public void blockInThread() {
         if (messageProcessingThread != null && messageProcessingThread.isAlive()) {
-            sessionConnector.log.warn("Trying to stop still running " + MESSAGE_PROCESSOR_THREAD_NAME);
-            stopHandlingMessages();
-            try {
-                messageProcessingThread.join(1000);
-            } catch (InterruptedException ex) {
-                sessionConnector.log.error(MESSAGE_PROCESSOR_THREAD_NAME + " interrupted.");
-            }
+            sessionConnector.log.warn("Trying to stop still running {}", MESSAGE_PROCESSOR_THREAD_NAME);
+            stopHandlingMessages(true);
             if (messageProcessingThread.isAlive()) {
                 throw new IllegalStateException("Still running " + MESSAGE_PROCESSOR_THREAD_NAME + " could not be stopped!");
             }
         }
 
         startHandlingMessages();
-        messageProcessingThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                sessionConnector.log.info("Started " + MESSAGE_PROCESSOR_THREAD_NAME);
-                block();
-                sessionConnector.log.info("Stopped " + MESSAGE_PROCESSOR_THREAD_NAME);
-            }
-        }, MESSAGE_PROCESSOR_THREAD_NAME);
+        messageProcessingThread = new ThreadAdapter(() -> {
+            sessionConnector.log.info("Started {}", MESSAGE_PROCESSOR_THREAD_NAME);
+            block();
+            sessionConnector.log.info("Stopped {}", MESSAGE_PROCESSOR_THREAD_NAME);
+        }, MESSAGE_PROCESSOR_THREAD_NAME, executor);
         messageProcessingThread.setDaemon(true);
         messageProcessingThread.start();
     }
@@ -156,11 +171,34 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
         isStopped = false;
     }
 
+    /**
+     * Stops processing of messages without waiting for message processing
+     * thread to finish.
+     * 
+     * It is advised to call stopHandlingMessages(true) instead of this method.
+     */
     public synchronized void stopHandlingMessages() {
         for (Session session : sessionConnector.getSessionMap().values()) {
             onMessage(session, END_OF_STREAM);
         }
         isStopped = true;
+    }
+
+    /**
+     * Stops processing of messages and optionally waits for message processing
+     * thread to finish.
+     *
+     * @param join true to wait for thread to finish
+     */
+    public void stopHandlingMessages(boolean join) {
+        stopHandlingMessages();
+        if (join) {
+            try {
+                messageProcessingThread.join();
+            } catch (InterruptedException e) {
+                sessionConnector.log.error("{} interrupted.", MESSAGE_PROCESSOR_THREAD_NAME);
+            }
+        }
     }
 
     @Override
@@ -173,5 +211,96 @@ public class SingleThreadedEventHandlingStrategy implements EventHandlingStrateg
         // we only have one queue for all sessions
         return getQueueSize();
     }
-    
+
+	/**
+	 * A stand-in for the Thread class that delegates to an Executor.
+	 * Implements all the API required by pre-existing QFJ code.
+	 */
+	static final class ThreadAdapter {
+
+		private final Executor executor;
+		private final RunnableWrapper wrapper;
+
+		ThreadAdapter(Runnable command, String name, Executor executor) {
+                    wrapper = new RunnableWrapper(command, name);
+                    this.executor = executor != null ? executor : new DedicatedThreadExecutor(name);
+		}
+
+		public void join() throws InterruptedException {
+                    wrapper.join();
+		}
+
+		public void setDaemon(boolean b) {
+                    /* No-Op. Already set for DedicatedThreadExecutor. Not relevant for externally supplied Executors. */
+		}
+
+		public boolean isAlive() {
+                    return wrapper.isAlive();
+		}
+
+		public void start() {
+                    executor.execute(wrapper);
+		}
+                
+		/**
+		 * Provides the Thread::join and Thread::isAlive semantics on the nested Runnable.
+		 */
+		static final class RunnableWrapper implements Runnable {
+
+			private final CountDownLatch latch = new CountDownLatch(1);
+			private final Runnable command;
+			private final String name;
+
+			public RunnableWrapper(Runnable command, String name) {
+                            this.command = command;
+                            this.name = name;
+			}
+
+                        @Override
+                        public void run() {
+                            Thread currentThread = Thread.currentThread();
+                            String threadName = currentThread.getName();
+                            try {
+                                if (!name.equals(threadName)) {
+                                    currentThread.setName(name + " (" + threadName + ")");
+                                }
+                                command.run();
+                            } finally {
+                                latch.countDown();
+                                currentThread.setName(threadName);
+                            }
+                        }
+
+			public void join() throws InterruptedException {
+                            latch.await();
+			}
+
+			public boolean isAlive() {
+                            return latch.getCount() > 0;
+			}
+		}
+
+		/**
+		 * An Executor that uses its own dedicated Thread.
+		 * Provides equivalent behavior to the prior non-Executor approach.
+		 */
+		static final class DedicatedThreadExecutor implements Executor {
+
+			private final String name;
+                        private Thread thread;
+			
+			DedicatedThreadExecutor(String name) {
+				this.name = name;
+			}
+
+			@Override
+			public void execute(Runnable command) {
+				thread = new Thread(command, name);
+				thread.setDaemon(true);
+				thread.start();
+			}
+		}
+
+	}
+
 }

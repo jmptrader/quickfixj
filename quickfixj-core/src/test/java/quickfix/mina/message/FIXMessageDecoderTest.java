@@ -19,19 +19,6 @@
 
 package quickfix.mina.message;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.filter.codec.ProtocolCodecException;
 import org.apache.mina.filter.codec.ProtocolDecoder;
@@ -42,12 +29,24 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.quickfixj.CharsetSupport;
-
 import quickfix.DataDictionaryTest;
 import quickfix.InvalidMessage;
 import quickfix.Message;
 import quickfix.field.Headline;
 import quickfix.mina.CriticalProtocolCodecException;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class FIXMessageDecoderTest {
     private FIXMessageDecoder decoder;
@@ -277,12 +276,8 @@ public class FIXMessageDecoderTest {
         File testFile = setUpTestFile();
 
         FIXMessageDecoder decoder = new FIXMessageDecoder();
-        final List<String> messages = new ArrayList<String>();
-        decoder.extractMessages(testFile, new FIXMessageDecoder.MessageListener() {
-            public void onMessage(String message) {
-                messages.add(message);
-            }
-        });
+        final List<String> messages = new ArrayList<>();
+        decoder.extractMessages(testFile, messages::add);
         assertCorrectlyExtractedMessages(messages);
     }
 
@@ -374,10 +369,11 @@ public class FIXMessageDecoderTest {
         final IoSessionStub mockSession = new IoSessionStub();
 
         int count = 5;
-        String data = "";
+        final StringBuilder builder = new StringBuilder(message.length() * 5);
         for (int i = 0; i < count; i++) {
-            data += message;
+            builder.append(message);
         }
+        final String data = builder.toString();
 
         for (int i = 1; i < data.length(); i++) {
             String chunk1 = data.substring(0, i);
@@ -425,16 +421,15 @@ public class FIXMessageDecoderTest {
     // =========================================================================================
     // QFJ-505
 
-    private static final String FIELD_DELIMITER = "\001";
-    private static final byte[] HEADER_PATTERN = getBytes("8=FIXt.?.?" + FIELD_DELIMITER + "9=");
+    private static final PatternMatcher HEADER_PATTERN = new PatternMatcher("8=FIXt.?.?\0019=");
 
     @Test
     public void testCompleteHeader() {
         // 8=FIXT.1.1_9=
         byte[] completeHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x54, 0x2E, 0x31, 0x2E, 0x31, 0x01, 0x39, 0x3D};
         IoBuffer in = IoBuffer.wrap(completeHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("We should have a complete header", bufPos._offset != -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertTrue("We should have a complete header", bufPos != -1);
     }
 
     @Test
@@ -442,8 +437,8 @@ public class FIXMessageDecoderTest {
         // 8=FIXT.1.1_9======
         byte[] completeHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x54, 0x2E, 0x31, 0x2E, 0x31, 0x01, 0x39, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D};
         IoBuffer in = IoBuffer.wrap(completeHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("We should have a complete header", bufPos._offset != -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertTrue("We should have a complete header", bufPos != -1);
     }
 
     @Test
@@ -451,8 +446,8 @@ public class FIXMessageDecoderTest {
         // 8=FIXT.1.1_9
         byte[] incompleteHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x54, 0x2E, 0x31, 0x2E, 0x31, 0x01, 0x39};
         IoBuffer in = IoBuffer.wrap(incompleteHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("There should be no header detected", bufPos._offset == -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertEquals("There should be no header detected", bufPos, -1);
     }
 
     @Test
@@ -460,8 +455,8 @@ public class FIXMessageDecoderTest {
         // 8=FIX.4.4_9=
         byte[] completeHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x2E, 0x34, 0x2E, 0x34, 0x01, 0x39, 0x3D};
         IoBuffer in = IoBuffer.wrap(completeHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("We should have a complete header", bufPos._offset != -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertTrue("We should have a complete header", bufPos != -1);
     }
 
     @Test
@@ -469,8 +464,8 @@ public class FIXMessageDecoderTest {
         // 8=FIX.4.4_9======
         byte[] completeHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x2E, 0x34, 0x2E, 0x34, 0x01, 0x39, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D};
         IoBuffer in = IoBuffer.wrap(completeHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("We should have a complete header", bufPos._offset != -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertTrue("We should have a complete header", bufPos != -1);
     }
 
     @Test
@@ -478,83 +473,21 @@ public class FIXMessageDecoderTest {
         // 8=FIX.4.4_9
         byte[] incompleteHeader = {0x38, 0x3D, 0x46, 0x49, 0x58, 0x2E, 0x34, 0x2E, 0x34, 0x01, 0x39};
         IoBuffer in = IoBuffer.wrap(incompleteHeader);
-        BufPos bufPos = indexOf(in, 0, HEADER_PATTERN);
-        Assert.assertTrue("There should be no header detected", bufPos._offset == -1);
+        long bufPos = HEADER_PATTERN.find(in, 0);
+        Assert.assertEquals("There should be no header detected", bufPos, -1);
     }
 
-    private static byte[] getBytes(String s) {
-        try {
-            return s.getBytes(CharsetSupport.getDefaultCharset());
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
+    
+    @Test(timeout = 1000)
+    // QFJ-903
+    public void testBadBodyLength() throws Exception {
+
+        String message = "8=FIX.4.4\u00019=A\u000135=D\u000149=ST\u000156=TS\u000134=3\u000152=20160830-14:21:45.472\u000111=Order32\u00011=Template1\u000121=1\u000155=VOD.L\u000148=VOD.L\u000122=5\u0001167=CS\u0001207=LSE\u000154=1\u000160=20160830-14:21:45.472\u000138=100\u000140=2\u000144=95\u000115=GBp\u000159=0\u000158=Staging\u000110=206\u0001";
+        message = message + "8=FIX.4.4\u00019=A\u000135=D\u000149=ST\u000156=TS\u000134=3\u000152=20160830-14:21:45.472\u000111=Order32\u00011=Template1\u000121=1\u000155=VOD.L\u000148=VOD.L\u000122=5\u0001167=CS\u0001207=LSE\u000154=1\u000160=20160830-14:21:45.472\u000138=100\u000140=2\u000144=95\u000115=GBp\u000159=0\u000158=Staging\u000110=206\u0001";
+        String goodMessage = "8=FIX.4.2\u00019=12\u000135=Y\u0001108=30\u000110=037\u0001";
+        message = message + goodMessage;
+
+        setUpBuffer(message);
+        assertMessageFound(goodMessage);
     }
-
-    private static int startsWith(IoBuffer buffer, int bufferOffset, byte[] data) {
-        if (bufferOffset + minMaskLength(data) > buffer.limit()) {
-            return -1;
-        }
-        final int initOffset = bufferOffset;
-        int dataOffset = 0;
-        for (int bufferLimit = buffer.limit(); dataOffset < data.length
-                && bufferOffset < bufferLimit; dataOffset++, bufferOffset++) {
-            if (buffer.get(bufferOffset) != data[dataOffset] && data[dataOffset] != '?') {
-                // Now check for optional characters, at this point we know we didn't
-                // match, so we can just check to see if we failed a match on an optional character,
-                // and if so then just rewind the buffer one byte and keep going.
-                if (Character.toUpperCase(data[dataOffset]) == buffer.get(bufferOffset))
-                    continue;
-                // Didn't match the optional character, so act like it was not included and keep going
-                if (Character.isLetter(data[dataOffset]) && Character.isLowerCase(data[dataOffset])) {
-                    --bufferOffset;
-                    continue;
-                }
-                return -1;
-            }
-        }
-        // Make sure every byte from the pattern was parsed
-        if (dataOffset < data.length) {
-            return -1;
-        }
-        return bufferOffset - initOffset;
-    }
-
-    private static BufPos indexOf(IoBuffer buffer, int position, byte[] data) {
-        for (int offset = position, limit = buffer.limit() - minMaskLength(data) + 1; offset < limit; offset++) {
-            int length;
-            if (buffer.get(offset) == data[0] && (length = startsWith(buffer, offset, data)) > 0) {
-                return new BufPos(offset, length);
-            }
-        }
-        return new BufPos(-1, 0);
-    }
-
-    private static int minMaskLength(byte[] data) {
-        int len = 0;
-        for (byte aChar : data) {
-            if (Character.isLetter(aChar) && Character.isLowerCase(aChar))
-                continue;
-            ++len;
-        }
-        return len;
-    }
-
-    static class BufPos {
-        final int _offset;
-        final int _length;
-
-        /**
-         * @param offset
-         * @param length
-         */
-        public BufPos(int offset, int length) {
-            _offset = offset;
-            _length = length;
-        }
-
-        public String toString() {
-            return _offset + "," + _length;
-        }
-    }
-
 }

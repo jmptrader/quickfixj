@@ -19,17 +19,30 @@
 
 package quickfix;
 
+import org.junit.Test;
+import org.quickfixj.CharsetSupport;
+import quickfix.field.ClOrdID;
+import quickfix.field.ExecInst;
+import quickfix.field.MDUpdateAction;
+import quickfix.field.OrdType;
+import quickfix.field.RawData;
+import quickfix.field.Side;
+import quickfix.field.TradeCondition;
+import quickfix.field.TransactTime;
+import quickfix.fix50.MarketDataIncrementalRefresh;
+import quickfix.fix50.NewOrderSingle;
+
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.Date;
 
-import static junit.framework.Assert.assertTrue;
-import static junit.framework.Assert.assertEquals;
-import org.junit.Test;
-import org.quickfixj.CharsetSupport;
-import quickfix.field.RawData;
-import quickfix.field.Side;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class FieldTest {
 
@@ -45,7 +58,7 @@ public class FieldTest {
     }
 
     private void testFieldCalcuations(String value, int checksum, int length) {
-        Field<String> field = new Field<String>(12, value);
+        Field<String> field = new Field<>(12, value);
         field.setObject(value);
         assertEquals("12=" + value, field.toString());
         assertEquals(checksum, field.getChecksum());
@@ -95,7 +108,7 @@ public class FieldTest {
     @Test
     public void testUtcDateOnlyField() {
         UtcDateOnlyField field = new UtcDateOnlyField(11);
-        Date date = new Date();
+        LocalDate date = LocalDate.now();
         field.setValue(date);
         assertEquals(11, field.getTag());
         assertEquals(date, field.getValue());
@@ -107,7 +120,7 @@ public class FieldTest {
     @Test
     public void testUtcTimeOnlyField() {
         UtcTimeOnlyField field = new UtcTimeOnlyField(11);
-        Date date = new Date();
+        LocalTime date = LocalTime.now();
         field.setValue(date);
         assertEquals(11, field.getTag());
         assertEquals(date, field.getValue());
@@ -119,7 +132,7 @@ public class FieldTest {
     @Test
     public void testUtcTimeStampField() {
         UtcTimeStampField field = new UtcTimeStampField(11);
-        Date date = new Date();
+        LocalDateTime date = LocalDateTime.now();
         field.setValue(date);
         assertEquals(11, field.getTag());
         assertEquals(date, field.getValue());
@@ -133,16 +146,16 @@ public class FieldTest {
         BooleanField field = new BooleanField(11);
         field.setValue(true);
         assertEquals(11, field.getTag());
-        assertEquals(true, field.getValue());
+        assertTrue(field.getValue());
         field.setValue(Boolean.FALSE);
         assertEquals(11, field.getTag());
-        assertEquals(false, field.getValue());
+        assertFalse(field.getValue());
         field = new BooleanField(22, true);
         assertEquals(22, field.getTag());
-        assertEquals(true, field.getValue());
+        assertTrue(field.getValue());
         field = new BooleanField(33, Boolean.TRUE);
         assertEquals(33, field.getTag());
-        assertEquals(true, field.getValue());
+        assertTrue(field.getValue());
     }
 
     @Test
@@ -161,7 +174,7 @@ public class FieldTest {
         assertEquals(33, field.getTag());
         assertEquals(45.6, field.getValue(), 0);
     }
-    
+
     @Test(expected = NumberFormatException.class)
     public void testDoubleFieldException() {
         DoubleField field = new DoubleField(11, Double.NaN);
@@ -244,10 +257,41 @@ public class FieldTest {
         assertEqualsAndHash(new StringField(11, "foo"), new StringField(11, "foo"));
         assertEqualsAndHash(new BooleanField(11, true), new BooleanField(11, true));
         assertEqualsAndHash(new CharField(11, 'x'), new CharField(11, 'x'));
-        Date date = new Date();
-        assertEqualsAndHash(new UtcDateOnlyField(11, date), new UtcDateOnlyField(11, date));
-        assertEqualsAndHash(new UtcTimeOnlyField(11, date), new UtcTimeOnlyField(11, date));
+        LocalDateTime date = LocalDateTime.now();
+        assertEqualsAndHash(new UtcDateOnlyField(11, date.toLocalDate()), new UtcDateOnlyField(11, date.toLocalDate()));
+        assertEqualsAndHash(new UtcTimeOnlyField(11, date.toLocalTime()), new UtcTimeOnlyField(11, date.toLocalTime()));
         assertEqualsAndHash(new UtcTimeStampField(11, date), new UtcTimeStampField(11, date));
+    }
+
+    // QFJ-881
+    @Test
+    public void testMultipleStringValue() throws Exception {
+        assertEquals(FieldType.MULTIPLESTRINGVALUE, FieldType.fromName("notused", "MULTIPLESTRINGVALUE"));
+        assertEquals(FieldType.MULTIPLEVALUESTRING, FieldType.fromName("notused", "MULTIPLEVALUESTRING"));
+
+        MarketDataIncrementalRefresh md = new MarketDataIncrementalRefresh();
+        MarketDataIncrementalRefresh.NoMDEntries value = new MarketDataIncrementalRefresh.NoMDEntries();
+        value.set(new MDUpdateAction(MDUpdateAction.NEW));
+        value.set(new TradeCondition("A B AF AG"));
+        md.addGroup(value);
+
+        DataDictionary dd = new DataDictionary("FIX50.xml");
+        dd.validate(md);
+    }
+
+    @Test
+    public void testMultipleCharValue() throws Exception {
+        assertEquals(FieldType.MULTIPLECHARVALUE, FieldType.fromName("notused", "MULTIPLECHARVALUE"));
+
+        NewOrderSingle nos = new NewOrderSingle();
+        nos.set(new ClOrdID("ORDER-1"));
+        nos.set(new Side(Side.BUY));
+        nos.set(new OrdType(OrdType.MARKET));
+        nos.set(new ExecInst("i V 7"));
+        nos.set(new TransactTime(LocalDateTime.of(2020, 3, 10, 12, 23, 44)));
+
+        DataDictionary dd = new DataDictionary("FIX50.xml");
+        dd.validate(nos);
     }
 
     private void assertEqualsAndHash(Field<?> field1, Field<?> field2) {

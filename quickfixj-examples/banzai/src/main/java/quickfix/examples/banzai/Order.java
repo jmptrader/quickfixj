@@ -26,7 +26,7 @@ public class Order implements Cloneable {
     private String symbol = null;
     private int quantity = 0;
     private int open = 0;
-    private int executed = 0;
+    private double executed = 0;
     private OrderSide side = OrderSide.BUY;
     private OrderType type = OrderType.MARKET;
     private OrderTIF tif = OrderTIF.DAY;
@@ -60,7 +60,7 @@ public class Order implements Cloneable {
     }
 
     public String generateID() {
-        return Long.valueOf(System.currentTimeMillis() + (nextID++)).toString();
+        return Long.toString(System.currentTimeMillis() + (nextID++));
     }
 
     public SessionID getSessionID() {
@@ -95,13 +95,11 @@ public class Order implements Cloneable {
         this.open = open;
     }
 
-    public int getExecuted() {
+    public double getExecuted() {
         return executed;
     }
 
-    public void setExecuted(int executed) {
-        this.executed = executed;
-    }
+    public void setExecuted(double executed) { this.executed = executed; }
 
     public OrderSide getSide() {
         return side;
@@ -139,7 +137,7 @@ public class Order implements Cloneable {
         if (limit == null || limit.equals("")) {
             this.limit = null;
         } else {
-            this.limit = new Double(limit);
+            this.limit = Double.parseDouble(limit);
         }
     }
 
@@ -155,7 +153,7 @@ public class Order implements Cloneable {
         if (stop == null || stop.equals("")) {
             this.stop = null;
         } else {
-            this.stop = new Double(stop);
+            this.stop = Double.parseDouble(stop);
         }
     }
 

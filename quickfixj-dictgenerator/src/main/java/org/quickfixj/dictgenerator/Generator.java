@@ -22,12 +22,7 @@ package org.quickfixj.dictgenerator;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.Writer;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 /**
  * QFJ-483: QFJ Dictionary Generator
@@ -72,7 +67,7 @@ public class Generator {
             builder.append("<fix major=\"").append(major).append("\" minor=\"").append(minor).append("\">\n");
         }
 
-        Map<String, MsgType> msgTypes = new LinkedHashMap<String, MsgType>();
+        Map<String, MsgType> msgTypes = new LinkedHashMap<>();
         if (!merged) {
             if (admin) {
                 msgTypes.putAll(repository.getSessionMsgTypes());
@@ -90,11 +85,11 @@ public class Generator {
         if (!merged) {
             if (admin) {
                 builder.append("  <header>\n");
-                Component standardHeader = repository.getStandardHeader(msgTypes.values().iterator().next());
+                Component standardHeader = repository.getStandardHeader(getNextMsgType(msgTypes));
                 addMsgContents(builder, standardHeader.getMsgContent(), "    ");
                 builder.append("  </header>\n");
                 builder.append("  <trailer>\n");
-                Component standardTrailer = repository.getStandardTrailer(msgTypes.values().iterator().next());
+                Component standardTrailer = repository.getStandardTrailer(getNextMsgType(msgTypes));
                 addMsgContents(builder, standardTrailer.getMsgContent(), "    ");
                 builder.append("  </trailer>\n");
             } else {
@@ -103,11 +98,11 @@ public class Generator {
             }
         } else {
             builder.append("  <header>\n");
-            Component standardHeader = repository.getStandardHeader(msgTypes.values().iterator().next());
+            Component standardHeader = repository.getStandardHeader(getNextMsgType(msgTypes));
             addMsgContents(builder, standardHeader.getMsgContent(), "    ");
             builder.append("  </header>\n");
             builder.append("  <trailer>\n");
-            Component standardTrailer = repository.getStandardTrailer(msgTypes.values().iterator().next());
+            Component standardTrailer = repository.getStandardTrailer(getNextMsgType(msgTypes));
             addMsgContents(builder, standardTrailer.getMsgContent(), "    ");
             builder.append("  </trailer>\n");
         }
@@ -181,7 +176,7 @@ public class Generator {
             builder.append("    <field number=\"").append(tag).append("\" name=\"").append(field.getFieldName()).append("\" type=\"").append(fieldType.toUpperCase()).append("\"");
             if (!field.getEnums().isEmpty()) {
                 builder.append(">\n");
-                Set<String> enumDescCache = new HashSet<String>();
+                Set<String> enumDescCache = new HashSet<>();
                 for (Enum theEnum : field.getEnums()) {
                     String enumDesc = theEnum.getDesc().toUpperCase();
                     enumDesc = enumDesc.replaceAll("\\(.*\\)", ""); // remove stuff in parentheses
@@ -222,6 +217,15 @@ public class Generator {
         }
     }
 
+    private MsgType getNextMsgType(Map<String, MsgType> msgTypes) {
+        Iterator<MsgType> it = msgTypes.values().iterator();
+        if(it.hasNext()) {
+            return it.next();
+        } else {
+            throw new RuntimeException("Message type not found. Check the MsgType.xml file.");
+        }
+    }
+
     private void addMsgContents(StringBuilder builder, List<Object> msgContents, String prefix) {
         for (Object o : msgContents) {
             if (o instanceof Field) {
@@ -241,7 +245,7 @@ public class Generator {
     }
 
     private Set<Integer> getAllFieldsUsed(Map<String, MsgType> msgTypes) {
-        Set<Integer> result = new TreeSet<Integer>();
+        Set<Integer> result = new TreeSet<>();
         for (MsgType msgType : msgTypes.values()) {
             result = addFields(result, msgType.getMsgContent());
         }
@@ -261,7 +265,7 @@ public class Generator {
     }
 
     private Set<String> getAllComponentsUsed(Map<String, MsgType> msgTypes) {
-        Set<String> result = new HashSet<String>();
+        Set<String> result = new HashSet<>();
         for (MsgType msgType : msgTypes.values()) {
             result = addComponents(result, msgType.getMsgContent());
         }
@@ -294,8 +298,8 @@ public class Generator {
             System.exit(1);
             return;
         }
-        int major = Integer.valueOf(args[1]);
-        int minor = Integer.valueOf(args[2]);
+        int major = Integer.parseInt(args[1]);
+        int minor = Integer.parseInt(args[2]);
 
         new Generator(repository, major, minor).generate();
     }

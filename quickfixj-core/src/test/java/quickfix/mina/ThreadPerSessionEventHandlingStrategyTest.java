@@ -19,25 +19,9 @@
 
 package quickfix.mina;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
-import static org.mockito.Mockito.mock;
-
-import java.util.Date;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import static junit.framework.Assert.assertTrue;
 import org.junit.After;
 import org.junit.Before;
-
 import org.junit.Test;
-
 import quickfix.ConfigError;
 import quickfix.DefaultSessionFactory;
 import quickfix.FieldNotFound;
@@ -48,7 +32,7 @@ import quickfix.MemoryStoreFactory;
 import quickfix.Message;
 import quickfix.RejectLogon;
 import quickfix.Responder;
-import quickfix.ScreenLogFactory;
+import quickfix.SLF4JLogFactory;
 import quickfix.Session;
 import quickfix.SessionFactory;
 import quickfix.SessionID;
@@ -61,6 +45,16 @@ import quickfix.field.SendingTime;
 import quickfix.field.TargetCompID;
 import quickfix.field.converter.UtcTimestampConverter;
 import quickfix.fix40.Logon;
+
+import java.util.Date;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+import static quickfix.test.util.ReflectionUtil.getField;
 
 public class ThreadPerSessionEventHandlingStrategyTest {
     private final static class ThreadPerSessionEventHandlingStrategyUnderTest extends
@@ -79,7 +73,7 @@ public class ThreadPerSessionEventHandlingStrategyTest {
         }
 
         @Override
-        protected Message getNextMessage(BlockingQueue<Message> messages) throws InterruptedException {
+        protected Message getNextMessage(QueueTracker<Message> queueTracker) throws InterruptedException {
             if (getMessageCount-- == 0) {
                 throw new InterruptedException("END COUNT");
             }
@@ -89,7 +83,7 @@ public class ThreadPerSessionEventHandlingStrategyTest {
                 }
                 throw (RuntimeException) getNextMessageException;
             }
-            return super.getNextMessage(messages);
+            return super.getNextMessage(queueTracker);
         }
     }
 
@@ -128,54 +122,55 @@ public class ThreadPerSessionEventHandlingStrategyTest {
             }
         };
 
-        final Session session = setUpSession(sessionID, application);
+        try (Session session = setUpSession(sessionID, application)) {
 
-        final Message message = new Logon();
-        message.getHeader().setString(SenderCompID.FIELD, "ISLD");
-        message.getHeader().setString(TargetCompID.FIELD, "TW");
-        message.getHeader().setString(SendingTime.FIELD,
-                UtcTimestampConverter.convert(new Date(), false));
-        message.getHeader().setInt(MsgSeqNum.FIELD, 1);
-        message.setInt(HeartBtInt.FIELD, 30);
-
-        strategy.onMessage(session, message);
-
-        // Wait for a received message
-        if (!latch.await(5, TimeUnit.SECONDS)) {
-            fail("Timeout");
-        }
-
-        assertEquals(1, application.fromAdminMessages.size());
-
-        final Thread[] threads = new Thread[1024];
-        Thread.enumerate(threads);
-
-        Thread dispatcherThread = null;
-        for (final Thread thread : threads) {
-            if (thread.getName().startsWith("QF/J Session dispatcher")) {
-                dispatcherThread = thread;
-                // Dispatcher threads are not daemon threads
-                assertThat(dispatcherThread.isDaemon(), is(false));
-                break;
+            final Message message = new Logon();
+            message.getHeader().setString(SenderCompID.FIELD, "ISLD");
+            message.getHeader().setString(TargetCompID.FIELD, "TW");
+            message.getHeader().setString(SendingTime.FIELD,
+                    UtcTimestampConverter.convert(new Date(), false));
+            message.getHeader().setInt(MsgSeqNum.FIELD, 1);
+            message.setInt(HeartBtInt.FIELD, 30);
+            
+            strategy.onMessage(session, message);
+            
+            // Wait for a received message
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                fail("Timeout");
             }
-        }
-
-        // We should have found the dispatcher thread
-        assertThat(dispatcherThread, notNullValue());
-
-        // Stop the threads and then check the thread state
-        strategy.stopDispatcherThreads();
-
-        for (int i = 0; i < 10; i++) {
-            Thread.sleep(100);
-            if (!dispatcherThread.isAlive()) {
-                break;
+            
+            assertEquals(1, application.fromAdminMessages.size());
+            
+            final Thread[] threads = new Thread[1024];
+            Thread.enumerate(threads);
+            
+            Thread dispatcherThread = null;
+            for (final Thread thread : threads) {
+                if (thread.getName().startsWith("QF/J Session dispatcher")) {
+                    dispatcherThread = thread;
+                    // Dispatcher threads are not daemon threads
+                    assertThat(dispatcherThread.isDaemon(), is(false));
+                    break;
+                }
             }
+            
+            // We should have found the dispatcher thread
+            assertThat(dispatcherThread, notNullValue());
+            
+            // Stop the threads and then check the thread state
+            strategy.stopDispatcherThreads();
+            
+            for (int i = 0; i < 10; i++) {
+                Thread.sleep(100);
+                if (!dispatcherThread.isAlive()) {
+                    break;
+                }
+            }
+            
+            // Dispatcher thread should be dead
+            assertThat(dispatcherThread.isAlive(), is(false));
+            assertNull(strategy.getDispatcher(sessionID));
         }
-
-        // Dispatcher thread should be dead
-        assertThat(dispatcherThread.isAlive(), is(false));
-        assertNull(strategy.getDispatcher(sessionID));
     }
 
     /**
@@ -196,94 +191,97 @@ public class ThreadPerSessionEventHandlingStrategyTest {
             }
         };
 
-        final Session session = setUpSession(sessionID, application);
+        try (Session session = setUpSession(sessionID, application)) {
 
-        final Message message = new Logon();
-        message.getHeader().setString(SenderCompID.FIELD, "ISLD");
-        message.getHeader().setString(TargetCompID.FIELD, "TW");
-        message.getHeader().setString(SendingTime.FIELD,
-                UtcTimestampConverter.convert(new Date(), false));
-        message.getHeader().setInt(MsgSeqNum.FIELD, 1);
-        message.setInt(HeartBtInt.FIELD, 30);
-
-        strategy.onMessage(session, message);
-
-        // Wait for a received message
-        if (!latch.await(5, TimeUnit.SECONDS)) {
-            fail("Timeout");
-        }
-
-        assertEquals(1, application.fromAdminMessages.size());
-
-        Thread[] threads = new Thread[1024];
-        Thread.enumerate(threads);
-
-        Thread dispatcherThread = null;
-        for (final Thread thread : threads) {
-            if (thread != null && thread.getName().startsWith("QF/J Session dispatcher")) {
-                dispatcherThread = thread;
-                // Dispatcher threads are not daemon threads
-                assertThat(dispatcherThread.isDaemon(), is(false));
-                break;
+            final Message message = new Logon();
+            message.getHeader().setString(SenderCompID.FIELD, "ISLD");
+            message.getHeader().setString(TargetCompID.FIELD, "TW");
+            message.getHeader().setString(SendingTime.FIELD,
+                    UtcTimestampConverter.convert(new Date(), false));
+            message.getHeader().setInt(MsgSeqNum.FIELD, 1);
+            message.setInt(HeartBtInt.FIELD, 30);
+            
+            strategy.onMessage(session, message);
+            
+            // Wait for a received message
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                fail("Timeout");
             }
-        }
-
-        assertTrue(session.hasResponder());
-        // QFJ-790: we do not check the state of the responder anymore
-        // but wait for the END_OF_STREAM message to stop the threads.
-        strategy.onMessage(session, EventHandlingStrategy.END_OF_STREAM);
-
-        // sleep some time to let the thread stop
-        for (int i = 0; i < 20; i++) {
-            Thread.sleep(100);
-            if (!dispatcherThread.isAlive()) {
-                break;
+            
+            assertEquals(1, application.fromAdminMessages.size());
+            
+            Thread[] threads = new Thread[1024];
+            Thread.enumerate(threads);
+            
+            Thread dispatcherThread = null;
+            for (final Thread thread : threads) {
+                if (thread != null && thread.getName().startsWith("QF/J Session dispatcher")) {
+                    dispatcherThread = thread;
+                    // Dispatcher threads are not daemon threads
+                    assertThat(dispatcherThread.isDaemon(), is(false));
+                    break;
+                }
             }
-        }
-        assertNull(strategy.getDispatcher(sessionID));
-
-        threads = new Thread[1024];
-        Thread.enumerate(threads);
-
-        dispatcherThread = null;
-        for (final Thread thread : threads) {
-            if (thread != null && thread.getName().startsWith("QF/J Session dispatcher")) {
-                dispatcherThread = thread;
-                // Dispatcher threads are not daemon threads
-                assertThat(dispatcherThread.isDaemon(), is(false));
-                break;
+            
+            assertTrue(session.hasResponder());
+            // QFJ-790: we do not check the state of the responder anymore
+            // but wait for the END_OF_STREAM message to stop the threads.
+            strategy.onMessage(session, EventHandlingStrategy.END_OF_STREAM);
+            
+            // sleep some time to let the thread stop
+            for (int i = 0; i < 20; i++) {
+                Thread.sleep(100);
+                if (!dispatcherThread.isAlive()) {
+                    break;
+                }
             }
+            assertNull(strategy.getDispatcher(sessionID));
+            
+            threads = new Thread[1024];
+            Thread.enumerate(threads);
+            
+            dispatcherThread = null;
+            for (final Thread thread : threads) {
+                if (thread != null && thread.getName().startsWith("QF/J Session dispatcher")) {
+                    dispatcherThread = thread;
+                    // Dispatcher threads are not daemon threads
+                    assertThat(dispatcherThread.isDaemon(), is(false));
+                    break;
+                }
+            }
+            
+            // the session dispatcher should be dead and hence not listed in the threads array
+            assertNull(dispatcherThread);
+            assertFalse(session.hasResponder());
         }
-
-        // the session dispatcher should be dead and hence not listed in the threads array
-        assertNull(dispatcherThread);
-        assertFalse(session.hasResponder());
     }
 
     @Test
     public void testEventHandlingInterruptInRun() throws Exception {
         final SessionID sessionID = new SessionID(FixVersions.BEGINSTRING_FIX40, "TW", "ISLD");
-        final Session session = setUpSession(sessionID);
-        final Message message = new Logon();
-        message.setInt(HeartBtInt.FIELD, 30);
-        final ThreadPerSessionEventHandlingStrategyUnderTest strategy = new ThreadPerSessionEventHandlingStrategyUnderTest();
-
-        strategy.onMessage(session, message);
-        strategy.getNextMessageException = new InterruptedException("TEST");
-        strategy.getDispatcher(sessionID).run();
+        try (Session session = setUpSession(sessionID)) {
+            final Message message = new Logon();
+            message.setInt(HeartBtInt.FIELD, 30);
+            final ThreadPerSessionEventHandlingStrategyUnderTest strategy = new ThreadPerSessionEventHandlingStrategyUnderTest();
+            
+            strategy.onMessage(session, message);
+            strategy.getNextMessageException = new InterruptedException("TEST");
+            strategy.getDispatcher(sessionID).run();
+        }
     }
 
     @Test
     public void testEventHandlingRuntimeException() throws Exception {
         final SessionID sessionID = new SessionID(FixVersions.BEGINSTRING_FIX40, "TW", "ISLD");
-        final Session session = setUpSession(sessionID);
-        final Message message = new Logon();
-        message.setInt(HeartBtInt.FIELD, 30);
-        final ThreadPerSessionEventHandlingStrategyUnderTest strategy = new ThreadPerSessionEventHandlingStrategyUnderTest();
-
-        strategy.onMessage(session, message);
-        strategy.getNextMessageException = new NullPointerException("TEST");
-        strategy.getDispatcher(sessionID).run();
+        try (Session session = setUpSession(sessionID)) {
+            final Message message = new Logon();
+            message.setInt(HeartBtInt.FIELD, 30);
+            final ThreadPerSessionEventHandlingStrategyUnderTest strategy = new ThreadPerSessionEventHandlingStrategyUnderTest();
+            
+            strategy.onMessage(session, message);
+            strategy.getNextMessageException = new NullPointerException("TEST");
+            strategy.getDispatcher(sessionID).run();
+        }
     }
 
     // verify the assumption that this always returns null
@@ -291,6 +289,29 @@ public class ThreadPerSessionEventHandlingStrategyTest {
     public void testVerifyGetConnectorAssumption() throws Exception {
         final ThreadPerSessionEventHandlingStrategyUnderTest strategy = new ThreadPerSessionEventHandlingStrategyUnderTest();
         assertNull(strategy.getSessionConnector());
+    }
+
+    @Test
+    public void shouldCreateCorrectTypeOfQueueTracker() throws Exception {
+        final Session quickfixSession = mock(Session.class, withSettings().defaultAnswer(RETURNS_DEEP_STUBS));
+
+        assertFalse(getField(
+                new ThreadPerSessionEventHandlingStrategy(null, 42)
+                        .createDispatcherThread(quickfixSession),
+                "queueTracker",
+                QueueTracker.class) instanceof WatermarkTracker);
+
+        assertTrue(getField(
+                new ThreadPerSessionEventHandlingStrategy(null, 42, 43)
+                        .createDispatcherThread(quickfixSession),
+                "queueTracker",
+                QueueTracker.class) instanceof WatermarkTracker);
+
+        assertFalse(getField(
+                new ThreadPerSessionEventHandlingStrategy(null, -1, -1)
+                        .createDispatcherThread(quickfixSession),
+                "queueTracker",
+                QueueTracker.class) instanceof WatermarkTracker);
     }
 
     private Session setUpSession(SessionID sessionID) throws ConfigError {
@@ -301,7 +322,7 @@ public class ThreadPerSessionEventHandlingStrategyTest {
     private Session setUpSession(SessionID sessionID, UnitTestApplication application)
             throws ConfigError {
         final DefaultSessionFactory sessionFactory = new DefaultSessionFactory(application,
-                new MemoryStoreFactory(), new ScreenLogFactory(true, true, true));
+                new MemoryStoreFactory(), new SLF4JLogFactory(new SessionSettings()));
         final SessionSettings settings = new SessionSettings();
         settings.setString(SessionFactory.SETTING_CONNECTION_TYPE,
                 SessionFactory.ACCEPTOR_CONNECTION_TYPE);

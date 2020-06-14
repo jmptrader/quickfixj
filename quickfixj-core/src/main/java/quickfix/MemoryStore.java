@@ -19,13 +19,13 @@
 
 package quickfix;
 
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
-
-import org.slf4j.LoggerFactory;
 
 /**
  * In-memory message store implementation.
@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * @see quickfix.MemoryStoreFactory
  */
 public class MemoryStore implements MessageStore {
-    private final HashMap<Integer, String> messages = new HashMap<Integer, String>();
+    private final HashMap<Integer, String> messages = new HashMap<>();
     private int nextSenderMsgSeqNum;
     private int nextTargetMsgSeqNum;
     private SessionID sessionID;
@@ -43,8 +43,9 @@ public class MemoryStore implements MessageStore {
         reset();
     }
 
-    public MemoryStore(SessionID sessionID) {
+    public MemoryStore(SessionID sessionID) throws IOException  {
         this.sessionID = sessionID;
+        reset();
     }
 
     public void get(int startSequence, int endSequence, Collection<String> messages) throws IOException {
@@ -111,8 +112,8 @@ public class MemoryStore implements MessageStore {
     public void refresh() throws IOException {
         // IOException is declared to maintain strict compatibility with QF JNI
         final String text = "memory store does not support refresh!";
-        if (sessionID != null) {
-            Session session = Session.lookupSession(sessionID);
+        final Session session = sessionID != null ? Session.lookupSession(sessionID) : null;
+        if (session != null) {
             session.getLog().onErrorEvent("ERROR: " + text);
         } else {
             LoggerFactory.getLogger(MemoryStore.class).error(text);

@@ -23,16 +23,24 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Date;
+import org.junit.After;
+import static org.junit.Assert.assertTrue;
+import org.junit.Before;
+import org.junit.Test;
 
-import junit.framework.TestCase;
+public class LogUtilTest {
 
-public class LogUtilTest extends TestCase {
-
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() throws Exception {
         SystemTime.setTimeSource(new MockSystemTimeSource(System.currentTimeMillis()));
     }
 
+    @After
+    public void tearDown() throws Exception {
+        SystemTime.setTimeSource(null);
+    }
+    
+    @Test
     public void testLogThrowable() throws ConfigError, FieldConvertError {
         ByteArrayOutputStream data = new ByteArrayOutputStream();
         LogFactory mockLogFactory = createLogFactory(data);
@@ -48,19 +56,17 @@ public class LogUtilTest extends TestCase {
         settings.setString(Session.SETTING_START_TIME, "16:00:00");
         settings.setString(Session.SETTING_END_TIME, "13:00:00");
         SessionID sessionID = new SessionID("FIX.4.2", "SENDER", "TARGET");
-        SessionSchedule schedule = new SessionSchedule(settings, sessionID);
-        Session session = new Session(null, new MessageStoreFactory() {
-            public MessageStore create(SessionID sessionID) {
-                try {
-                    return new MemoryStore() {
-                        public Date getCreationTime() throws IOException {
-                            throw new IOException("test");
-                        }
-                    };
-                } catch (IOException e) {
-                    // ignore
-                    return null;
-                }
+        SessionSchedule schedule = new DefaultSessionSchedule(settings, sessionID);
+        Session session = new Session(null, sessionID1 -> {
+            try {
+                return new MemoryStore() {
+                    public Date getCreationTime() throws IOException {
+                        throw new IOException("test");
+                    }
+                };
+            } catch (IOException e) {
+                // ignore
+                return null;
             }
         }, sessionID, null, schedule, mockLogFactory, null, 0);
         try {
@@ -79,10 +85,6 @@ public class LogUtilTest extends TestCase {
 
             public Log create(SessionID sessionID, String callerFQCN) {
                 return log;
-            }
-
-            public Log create() {
-                throw new UnsupportedOperationException();
             }
         };
     }

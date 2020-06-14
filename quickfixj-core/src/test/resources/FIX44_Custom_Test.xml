@@ -262,10 +262,10 @@
         <group name="NoLegs" required="N">
           <component name="InstrumentLeg" required="N" />
 
-			<!-- Added for testing purpose - see RepeatingGroupTest -->        
-    	    <field name="OrderID" required="N" />
-	        <field name="9001" required="N" />
-			<!-- Till here -->        
+          <!-- Added for testing purpose - see RepeatingGroupTest -->
+          <field name="OrderID" required="N" />
+          <field name="9001" required="N" />
+          <!-- Till here -->
 
           <field name="LegQty" required="N" />
           <field name="LegSwapType" required="N" />
@@ -519,7 +519,7 @@
       <field name="OrderCapacity" required="N" />
       <field name="PriceType" required="N" />
       <component name="SpreadOrBenchmarkCurveData" required="N" />
-      <component name="YieldData" required="N" />          
+      <component name="YieldData" required="N" />
       <field name="Text" required="N" />
       <field name="EncodedTextLen" required="N" />
       <field name="EncodedText" required="N" />
@@ -810,7 +810,7 @@
       <field name="MDEntrySeller" required="N" />
       <field name="NumberOfOrders" required="N" />
       <field name="MDEntryPositionNo" required="N" />
-      <field name="Scope" required="N" />                
+      <field name="Scope" required="N" />
       <field name="PriceDelta" required="N" />
       <field name="Text" required="N" />
       <field name="EncodedTextLen" required="N" />
@@ -881,7 +881,7 @@
     </group>
     <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
-    <field name="EncodedText" required="N" />  
+    <field name="EncodedText" required="N" />
   </message>
   <message name="SecurityDefinitionRequest" msgtype="c" msgcat="app">
     <field name="SecurityReqID" required="Y" />
@@ -1206,6 +1206,7 @@
     <field name="MoneyLaunderingStatus" required="N" />
     <field name="RegistID" required="N" />
     <field name="Designation" required="N" />
+    <field name="LargeField" required="N" />
   </message>
   <message name="ExecutionReport" msgtype="8" msgcat="app">
     <field name="OrderID" required="Y" />
@@ -3137,7 +3138,7 @@
     <field name="PosTransType" required="Y" />
     <field name="PosReqID" required="N" />
     <field name="PosMaintAction" required="Y" />
-    <field name="OrigPosReqRefID" required="Y" />            
+    <field name="OrigPosReqRefID" required="Y" />
     <field name="PosMaintStatus" required="Y" />
     <field name="PosMaintResult" required="N" />
     <field name="ClearingBusinessDate" required="Y" />
@@ -3195,7 +3196,7 @@
     <field name="TransactTime" required="Y" />
     <field name="ResponseTransportType" required="N" />
     <field name="ResponseDestination" required="N" />
-    <field name="Text" required="N" />   
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3241,9 +3242,9 @@
     <field name="AccountType" required="Y" />
     <component name="Instrument" required="N" />
     <field name="Currency" required="N" />
-    <field name="SettlPrice" required="Y" />   
+    <field name="SettlPrice" required="Y" />
     <field name="SettlPriceType" required="Y" />
-    <field name="PriorSettlPrice" required="Y" />   
+    <field name="PriorSettlPrice" required="Y" />
     <group name="NoLegs" required="N">
       <component name="InstrumentLeg" required="N" />
     </group>
@@ -3255,8 +3256,8 @@
     <component name="PositionQty" required="Y" />
     <component name="PositionAmountData" required="Y" />
     <field name="RegistStatus" required="N" />   RegNonRegInd
-    <field name="DeliveryDate" required="N" />   
-    <field name="Text" required="N" />   
+    <field name="DeliveryDate" required="N" />
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3309,7 +3310,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3323,31 +3324,31 @@
       <component name="UnderlyingInstrument" required="N" />
       <field name="CollAction" required="N" />
     </group>
-    <field name="MarginExcess" required="N" />   
-    <field name="TotalNetValue" required="N" />   
-    <field name="CashOutstanding" required="N" />   
+    <field name="MarginExcess" required="N" />
+    <field name="TotalNetValue" required="N" />
+    <field name="CashOutstanding" required="N" />
     <component name="TrdRegTimestamps" required="N" />
-    <field name="Side" required="N" />   
+    <field name="Side" required="N" />
     <group name="NoMiscFees" required="N">
       <field name="MiscFeeAmt" required="N" />
-      <field name="MiscFeeCurr" required="N" /> 
+      <field name="MiscFeeCurr" required="N" />
       <field name="MiscFeeType" required="N" />
-      <field name="MiscFeeBasis" required="N" /> 
+      <field name="MiscFeeBasis" required="N" />
     </group>
-    <field name="Price" required="N" />   
-    <field name="PriceType" required="N" />   
-    <field name="AccruedInterestAmt" required="N" />   
-    <field name="EndAccruedInterestAmt" required="N" />   
-    <field name="StartCash" required="N" />   
-    <field name="EndCash" required="N" />   
+    <field name="Price" required="N" />
+    <field name="PriceType" required="N" />
+    <field name="AccruedInterestAmt" required="N" />
+    <field name="EndAccruedInterestAmt" required="N" />
+    <field name="StartCash" required="N" />
+    <field name="EndCash" required="N" />
     <component name="SpreadOrBenchmarkCurveData" required="N" />
     <component name="Stipulations" required="N" />
     <field name="TradingSessionID" required="N" />
     <field name="TradingSessionSubID" required="N" />
-    <field name="SettlSessID" required="N" />   
-    <field name="SettlSessSubID" required="N" />   
-    <field name="ClearingBusinessDate" required="N" />   
-    <field name="Text" required="N" />   
+    <field name="SettlSessID" required="N" />
+    <field name="SettlSessSubID" required="N" />
+    <field name="ClearingBusinessDate" required="N" />
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3371,7 +3372,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3385,32 +3386,32 @@
       <component name="UnderlyingInstrument" required="N" />
       <field name="CollAction" required="N" />
     </group>
-    <field name="MarginExcess" required="N" />   
-    <field name="TotalNetValue" required="N" />   
-    <field name="CashOutstanding" required="N" />   
+    <field name="MarginExcess" required="N" />
+    <field name="TotalNetValue" required="N" />
+    <field name="CashOutstanding" required="N" />
     <component name="TrdRegTimestamps" required="N" />
-    <field name="Side" required="N" />               
+    <field name="Side" required="N" />
     <group name="NoMiscFees" required="N">
       <field name="MiscFeeAmt" required="N" />
-      <field name="MiscFeeCurr" required="N" /> 
+      <field name="MiscFeeCurr" required="N" />
       <field name="MiscFeeType" required="N" />
-      <field name="MiscFeeBasis" required="N" /> 
+      <field name="MiscFeeBasis" required="N" />
     </group>
-    <field name="Price" required="N" />   
-    <field name="PriceType" required="N" />   
-    <field name="AccruedInterestAmt" required="N" />   
-    <field name="EndAccruedInterestAmt" required="N" />   
-    <field name="StartCash" required="N" />   
-    <field name="EndCash" required="N" />   
+    <field name="Price" required="N" />
+    <field name="PriceType" required="N" />
+    <field name="AccruedInterestAmt" required="N" />
+    <field name="EndAccruedInterestAmt" required="N" />
+    <field name="StartCash" required="N" />
+    <field name="EndCash" required="N" />
   <component name="SpreadOrBenchmarkCurveData" required="N" />
     <component name="Stipulations" required="N" />
     <component name="SettlInstructionsData" required="N" />
     <field name="TradingSessionID" required="N" />
     <field name="TradingSessionSubID" required="N" />
-    <field name="SettlSessID" required="N" />   
-    <field name="SettlSessSubID" required="N" />   
-    <field name="ClearingBusinessDate" required="N" />   
-    <field name="Text" required="N" />   
+    <field name="SettlSessID" required="N" />
+    <field name="SettlSessSubID" required="N" />
+    <field name="ClearingBusinessDate" required="N" />
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3435,7 +3436,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3449,26 +3450,26 @@
       <component name="UnderlyingInstrument" required="N" />
       <field name="CollAction" required="N" />
     </group>
-    <field name="MarginExcess" required="N" />   
-    <field name="TotalNetValue" required="N" />   
-    <field name="CashOutstanding" required="N" />   
-    <component name="TrdRegTimestamps" required="N" />            
-    <field name="Side" required="N" />               
+    <field name="MarginExcess" required="N" />
+    <field name="TotalNetValue" required="N" />
+    <field name="CashOutstanding" required="N" />
+    <component name="TrdRegTimestamps" required="N" />
+    <field name="Side" required="N" />
     <group name="NoMiscFees" required="N">
       <field name="MiscFeeAmt" required="N" />
-      <field name="MiscFeeCurr" required="N" /> 
+      <field name="MiscFeeCurr" required="N" />
       <field name="MiscFeeType" required="N" />
-      <field name="MiscFeeBasis" required="N" /> 
+      <field name="MiscFeeBasis" required="N" />
     </group>
-    <field name="Price" required="N" />   
-    <field name="PriceType" required="N" />   
-    <field name="AccruedInterestAmt" required="N" />   
-    <field name="EndAccruedInterestAmt" required="N" />   
-    <field name="StartCash" required="N" />   
-    <field name="EndCash" required="N" />   
+    <field name="Price" required="N" />
+    <field name="PriceType" required="N" />
+    <field name="AccruedInterestAmt" required="N" />
+    <field name="EndAccruedInterestAmt" required="N" />
+    <field name="StartCash" required="N" />
+    <field name="EndCash" required="N" />
     <component name="SpreadOrBenchmarkCurveData" required="N" />
     <component name="Stipulations" required="N" />
-    <field name="Text" required="N" />   
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3490,7 +3491,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3503,32 +3504,32 @@
     <group name="NoUnderlyings" required="N">
       <component name="UnderlyingInstrument" required="N" />
     </group>
-    <field name="MarginExcess" required="N" />   
-    <field name="TotalNetValue" required="N" />   
-    <field name="CashOutstanding" required="N" />   
+    <field name="MarginExcess" required="N" />
+    <field name="TotalNetValue" required="N" />
+    <field name="CashOutstanding" required="N" />
     <component name="TrdRegTimestamps" required="N" />
-    <field name="Side" required="N" />   
+    <field name="Side" required="N" />
     <group name="NoMiscFees" required="N">
       <field name="MiscFeeAmt" required="N" />
-      <field name="MiscFeeCurr" required="N" /> 
+      <field name="MiscFeeCurr" required="N" />
       <field name="MiscFeeType" required="N" />
-      <field name="MiscFeeBasis" required="N" /> 
+      <field name="MiscFeeBasis" required="N" />
     </group>
-    <field name="Price" required="N" />   
-    <field name="PriceType" required="N" />   
-    <field name="AccruedInterestAmt" required="N" />   
-    <field name="EndAccruedInterestAmt" required="N" />   
-    <field name="StartCash" required="N" />   
-    <field name="EndCash" required="N" />   
+    <field name="Price" required="N" />
+    <field name="PriceType" required="N" />
+    <field name="AccruedInterestAmt" required="N" />
+    <field name="EndAccruedInterestAmt" required="N" />
+    <field name="StartCash" required="N" />
+    <field name="EndCash" required="N" />
     <component name="SpreadOrBenchmarkCurveData" required="N" />
     <component name="Stipulations" required="N" />
     <component name="SettlInstructionsData" required="N" />
     <field name="TradingSessionID" required="N" />
     <field name="TradingSessionSubID" required="N" />
-    <field name="SettlSessID" required="N" />   
-    <field name="SettlSessSubID" required="N" />   
-    <field name="ClearingBusinessDate" required="N" />   
-    <field name="Text" required="N" />   
+    <field name="SettlSessID" required="N" />
+    <field name="SettlSessSubID" required="N" />
+    <field name="ClearingBusinessDate" required="N" />
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3552,7 +3553,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3565,26 +3566,26 @@
     <group name="NoUnderlyings" required="N">
       <component name="UnderlyingInstrument" required="N" />
     </group>
-    <field name="MarginExcess" required="N" />   
-    <field name="TotalNetValue" required="N" />   
-    <field name="CashOutstanding" required="N" />   
+    <field name="MarginExcess" required="N" />
+    <field name="TotalNetValue" required="N" />
+    <field name="CashOutstanding" required="N" />
     <component name="TrdRegTimestamps" required="N" />
-    <field name="Side" required="N" />               
-    <field name="Price" required="N" />   
-    <field name="PriceType" required="N" />   
-    <field name="AccruedInterestAmt" required="N" />   
-    <field name="EndAccruedInterestAmt" required="N" />   
-    <field name="StartCash" required="N" />   
-    <field name="EndCash" required="N" />   
+    <field name="Side" required="N" />
+    <field name="Price" required="N" />
+    <field name="PriceType" required="N" />
+    <field name="AccruedInterestAmt" required="N" />
+    <field name="EndAccruedInterestAmt" required="N" />
+    <field name="StartCash" required="N" />
+    <field name="EndCash" required="N" />
     <component name="SpreadOrBenchmarkCurveData" required="N" />
     <component name="Stipulations" required="N" />
     <component name="SettlInstructionsData" required="N" />
     <field name="TradingSessionID" required="N" />
     <field name="TradingSessionSubID" required="N" />
-    <field name="SettlSessID" required="N" />   
-    <field name="SettlSessSubID" required="N" />   
-    <field name="ClearingBusinessDate" required="N" />   
-    <field name="Text" required="N" />   
+    <field name="SettlSessID" required="N" />
+    <field name="SettlSessSubID" required="N" />
+    <field name="ClearingBusinessDate" required="N" />
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3608,7 +3609,7 @@
     </group>
     <group name="NoTrades" required="N">
       <field name="TradeReportID" required="N" />
-      <field name="SecondaryTradeReportID" required="N" /> 
+      <field name="SecondaryTradeReportID" required="N" />
     </group>
     <component name="Instrument" required="N" />
     <component name="FinancingDetails" required="N" />
@@ -3623,12 +3624,12 @@
     </group>
     <field name="TradingSessionID" required="N" />
     <field name="TradingSessionSubID" required="N" />
-    <field name="SettlSessID" required="N" />   
-    <field name="SettlSessSubID" required="N" />   
-    <field name="ClearingBusinessDate" required="N" />   
+    <field name="SettlSessID" required="N" />
+    <field name="SettlSessSubID" required="N" />
+    <field name="ClearingBusinessDate" required="N" />
     <field name="ResponseTransportType" required="N" />
     <field name="ResponseDestination" required="N" />
-    <field name="Text" required="N" />   
+    <field name="Text" required="N" />
     <field name="EncodedTextLen" required="N" />
     <field name="EncodedText" required="N" />
   </message>
@@ -3906,9 +3907,9 @@
     <component name="PositionQty">
       <group name="NoPositions" required="Y">
         <field name="PosType" required="N" />
-        <field name="LongQty" required="N" />   
-        <field name="ShortQty" required="N" />   
-        <field name="PosQtyStatus" required="N" />   
+        <field name="LongQty" required="N" />
+        <field name="ShortQty" required="N" />
+        <field name="PosQtyStatus" required="N" />
         <component name="NestedParties" required="N" />
       </group>
     </component>
@@ -3965,12 +3966,11 @@
     </component>
   </components>
   <fields>
-  
+
       <field number="9001" name="9001" type="STRING" />
       <field number="9002" name="9002" type="STRING" />
       <field number="9003" name="9003" type="STRING" />
-  
-  
+
     <field number="1" name="Account" type="STRING" />
     <field number="2" name="AdvId" type="STRING" />
     <field number="3" name="AdvRefID" type="STRING" />
@@ -4196,7 +4196,7 @@
     <field number="36" name="NewSeqNo" type="SEQNUM" />
     <field number="37" name="OrderID" type="STRING" />
     <field number="38" name="OrderQty" type="QTY" />
-    <field number="39" name="OrdStatus" type="CHAR">  
+    <field number="39" name="OrdStatus" type="CHAR">
       <value enum="0" description="NEW" />
       <value enum="1" description="PARTIALLY_FILLED" />
       <value enum="2" description="FILLED" />
@@ -4213,7 +4213,7 @@
       <value enum="D" description="ACCEPTED_FOR_BIDDING" />
       <value enum="E" description="PENDING_REPLACE" />
     </field>
-    <field number="40" name="OrdType" type="CHAR">  
+    <field number="40" name="OrdType" type="CHAR">
       <value enum="1" description="MARKET" />
       <value enum="2" description="LIMIT" />
       <value enum="3" description="STOP" />
@@ -4248,7 +4248,7 @@
     <field number="50" name="SenderSubID" type="STRING" />
     <field number="52" name="SendingTime" type="UTCTIMESTAMP" />
     <field number="53" name="Quantity" type="QTY" />
-    <field number="54" name="Side" type="CHAR">  
+    <field number="54" name="Side" type="CHAR">
       <value enum="1" description="BUY" />
       <value enum="2" description="SELL" />
       <value enum="3" description="BUY_MINUS" />
@@ -4270,7 +4270,7 @@
     <field number="56" name="TargetCompID" type="STRING" />
     <field number="57" name="TargetSubID" type="STRING" />
     <field number="58" name="Text" type="STRING" />
-    <field number="59" name="TimeInForce" type="CHAR">  
+    <field number="59" name="TimeInForce" type="CHAR">
       <value enum="0" description="DAY" />
       <value enum="1" description="GOOD_TILL_CANCEL" />
       <value enum="2" description="AT_THE_OPENING" />
@@ -5846,7 +5846,7 @@
     <field number="601" name="LegSymbolSfx" type="STRING" />
     <field number="602" name="LegSecurityID" type="STRING" />
     <field number="603" name="LegSecurityIDSource" type="STRING" />
-    <field number="604" name="NoLegSecurityAltID" type="STRING" />
+    <field number="604" name="NoLegSecurityAltID" type="NUMINGROUP" />
     <field number="605" name="LegSecurityAltID" type="STRING" />
     <field number="606" name="LegSecurityAltIDSource" type="STRING" />
     <field number="607" name="LegProduct" type="INT" />
@@ -6648,5 +6648,8 @@
     <field number="954" name="Nested3PartySubIDType" type="INT" />
     <field number="955" name="LegContractSettlMonth" type="MONTHYEAR" />
     <field number="956" name="LegInterestAccrualDate" type="LOCALMKTDATE" />
+
+    <field number="5000" name="CustomTestField" type="INT" />
+    <field number="22000" name="LargeField" type="STRING" />
   </fields>
 </fix>

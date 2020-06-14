@@ -3502,8 +3502,6 @@
     </component>
     <component name="StrmAsgnRptGrp">
       <group name="NoAsgnReqs" required="N">
-		<!-- MODIFIED: added dummy StreamAsgnReqType field for code generator to work -->
-		<field name="StreamAsgnReqType" required="N"/>
         <component name="Parties" required="N"/>
         <component name="StrmAsgnRptInstrmtGrp" required="N"/>
       </group>
@@ -3786,8 +3784,6 @@
     </component>
     <component name="StrmAsgnReqGrp">
       <group name="NoAsgnReqs" required="N">
-		<!-- MODIFIED: added dummy StreamAsgnReqType field for code generator to work -->
-		<field name="StreamAsgnReqType" required="N"/>
         <component name="Parties" required="N"/>
         <component name="StrmAsgnReqInstrmtGrp" required="N"/>
       </group>
@@ -5514,7 +5510,7 @@
       <value enum="M" description="MEDIUM"/>
     </field>
     <field number="26" name="IOIRefID" type="STRING"/>
-    <field number="27" name="IOIQty" type="STRING">
+    <field number="27" name="IOIQty" type="STRING" allowOtherValues="true">
       <value enum="S" description="SMALL"/>
       <value enum="M" description="MEDIUM"/>
       <value enum="L" description="LARGE"/>
@@ -5987,10 +5983,10 @@
     <field number="149" name="URLLink" type="STRING"/>
     <field number="150" name="ExecType" type="CHAR">
       <value enum="0" description="NEW"/>
-	  <!-- MODIFIED: values 1 and 2 were removed from the spec,
-	       but are added here in order for the code generator to work -->
-	  <value enum="1" description="PARTIAL_FILL"/>
-	  <value enum="2" description="FILL"/>
+      <!-- MODIFIED: values 1 and 2 were removed from the spec,
+           but are added here in order for the code generator to work -->
+      <value enum="1" description="PARTIAL_FILL"/>
+      <value enum="2" description="FILL"/>
       <value enum="3" description="DONE_FOR_DAY"/>
       <value enum="4" description="CANCELED"/>
       <value enum="5" description="REPLACED"/>
@@ -6502,7 +6498,7 @@
       <value enum="c" description="REGULAR_ETH"/>
       <value enum="d" description="AUTOMATIC_EXECUTION"/>
       <value enum="e" description="AUTOMATIC_EXECUTION_ETH"/>
-      <value enum="f " description="FAST_MARKET_ETH"/>
+      <value enum="f" description="FAST_MARKET_ETH"/>
       <value enum="g" description="INACTIVE_ETH"/>
       <value enum="h" description="ROTATION"/>
       <value enum="i" description="ROTATION_ETH"/>

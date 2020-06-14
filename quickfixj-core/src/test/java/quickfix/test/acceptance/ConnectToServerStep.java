@@ -23,8 +23,8 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import junit.framework.Assert;
 import junit.framework.TestResult;
+import org.junit.Assert;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +55,7 @@ public class ConnectToServerStep implements TestStep {
         } else {
             Assert.fail("incorrect connect command: " + command);
         }
-        log.debug("connecting to client " + clientId);
+        log.debug("connecting to client {}", clientId);
         long reconnectDelay = Long.getLong("atest.reconnectDelay", 50L);
         if (reconnectDelay > 0) {
             try {

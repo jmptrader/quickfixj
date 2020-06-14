@@ -19,11 +19,25 @@
 
 package quickfix;
 
-import static quickfix.FileUtil.Location.CLASSLOADER_RESOURCE;
-import static quickfix.FileUtil.Location.CONTEXT_RESOURCE;
-import static quickfix.FileUtil.Location.FILESYSTEM;
-import static quickfix.FileUtil.Location.URL;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import quickfix.field.BeginString;
+import quickfix.field.MsgType;
+import quickfix.field.SessionRejectReason;
+import quickfix.field.converter.BooleanConverter;
+import quickfix.field.converter.CharArrayConverter;
+import quickfix.field.converter.CharConverter;
+import quickfix.field.converter.DoubleConverter;
+import quickfix.field.converter.IntConverter;
+import quickfix.field.converter.UtcDateOnlyConverter;
+import quickfix.field.converter.UtcTimeOnlyConverter;
+import quickfix.field.converter.UtcTimestampConverter;
 
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
@@ -34,26 +48,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.xml.XMLConstants;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-
-import quickfix.field.BeginString;
-import quickfix.field.MsgType;
-import quickfix.field.SessionRejectReason;
-import quickfix.field.converter.BooleanConverter;
-import quickfix.field.converter.CharConverter;
-import quickfix.field.converter.DoubleConverter;
-import quickfix.field.converter.IntConverter;
-import quickfix.field.converter.UtcDateOnlyConverter;
-import quickfix.field.converter.UtcTimeOnlyConverter;
-import quickfix.field.converter.UtcTimestampConverter;
+import static quickfix.FileUtil.Location.CLASSLOADER_RESOURCE;
+import static quickfix.FileUtil.Location.CONTEXT_RESOURCE;
+import static quickfix.FileUtil.Location.FILESYSTEM;
+import static quickfix.FileUtil.Location.URL;
 
 /**
  * Provide the message metadata for various versions of FIX.
@@ -64,8 +64,8 @@ public class DataDictionary {
     public static final String ANY_VALUE = "__ANY__";
     public static final String HEADER_ID = "HEADER";
     public static final String TRAILER_ID = "TRAILER";
-    private static final String MESSAGE_CATEGORY_ADMIN = "admin".intern();
-    private static final String MESSAGE_CATEGORY_APP = "app".intern();
+    private static final String MESSAGE_CATEGORY_ADMIN = "admin";
+    private static final String MESSAGE_CATEGORY_APP = "app";
 
     private static final int USER_DEFINED_TAG_MIN = 5000;
     private static final String NO = "N";
@@ -76,19 +76,20 @@ public class DataDictionary {
     private boolean checkUnorderedGroupFields = true;
     private boolean allowUnknownMessageFields = false;
     private String beginString;
-    private final Map<String, Set<Integer>> messageFields = new HashMap<String, Set<Integer>>();
-    private final Map<String, Set<Integer>> requiredFields = new HashMap<String, Set<Integer>>();
-    private final Set<String> messages = new HashSet<String>();
-    private final Map<String, String> messageCategory = new HashMap<String, String>();
-    private final Map<String, String> messageTypeForName = new HashMap<String, String>();
-    private final LinkedHashSet<Integer> fields = new LinkedHashSet<Integer>();
-    private final Map<Integer, FieldType> fieldTypes = new HashMap<Integer, FieldType>();
-    private final Map<Integer, Set<String>> fieldValues = new HashMap<Integer, Set<String>>();
-    private final Map<Integer, String> fieldNames = new HashMap<Integer, String>();
-    private final Map<String, Integer> names = new HashMap<String, Integer>();
-    private final Map<IntStringPair, String> valueNames = new HashMap<IntStringPair, String>();
-    private final Map<IntStringPair, GroupInfo> groups = new HashMap<IntStringPair, GroupInfo>();
-    private final Map<String, Node> components = new HashMap<String, Node>();
+    private final Map<String, Set<Integer>> messageFields = new HashMap<>();
+    private final Map<String, Set<Integer>> requiredFields = new HashMap<>();
+    private final Set<String> messages = new HashSet<>();
+    private final Map<String, String> messageCategory = new HashMap<>();
+    private final Map<String, String> messageTypeForName = new HashMap<>();
+    private final LinkedHashSet<Integer> fields = new LinkedHashSet<>();
+    private final Map<Integer, FieldType> fieldTypes = new HashMap<>();
+    private final Map<Integer, Set<String>> fieldValues = new HashMap<>();
+    private final Map<Integer, String> fieldNames = new HashMap<>();
+    private final Map<String, Integer> names = new HashMap<>();
+    private final IntegerStringMap<String> valueNames = new IntegerStringMap<>();
+    private final StringIntegerMap<GroupInfo> groups = new StringIntegerMap<>();
+    private final Map<String, Node> components = new HashMap<>();
+    private int[] orderedFieldsArray;
 
     private DataDictionary() {
     }
@@ -158,7 +159,7 @@ public class DataDictionary {
     }
 
     private void addValueName(int field, String value, String name) {
-        valueNames.put(new IntStringPair(field, value), name);
+        valueNames.put(field, value, name);
     }
 
     /**
@@ -169,7 +170,18 @@ public class DataDictionary {
      * @return the value's name
      */
     public String getValueName(int field, String value) {
-        return valueNames.get(new IntStringPair(field, value));
+        return valueNames.get(field, value);
+    }
+
+    /**
+     * Get the value, if any, for an enumerated value name.
+     *
+     * @param field the tag
+     * @param name the value name
+     * @return the value assigned to passed name
+     */
+    public String getValue(int field, String name) {
+        return valueNames.getValue(field, name);
     }
 
     /**
@@ -188,7 +200,7 @@ public class DataDictionary {
      * @param field the tag
      * @return the field type
      */
-    public FieldType getFieldTypeEnum(int field) {
+    public FieldType getFieldType(int field) {
         return fieldTypes.get(field);
     }
 
@@ -245,12 +257,7 @@ public class DataDictionary {
     }
 
     private void addMsgField(String msgType, int field) {
-        Set<Integer> fields = messageFields.get(msgType);
-        if (fields == null) {
-            fields = new HashSet<Integer>();
-            messageFields.put(msgType, fields);
-        }
-        fields.add(field);
+        messageFields.computeIfAbsent(msgType, k -> new HashSet<>()).add(field);
     }
 
     /**
@@ -272,8 +279,7 @@ public class DataDictionary {
      * @return true if field is a header field, false otherwise.
      */
     public boolean isHeaderField(int field) {
-        Set<Integer> fields = messageFields.get(HEADER_ID);
-        return fields != null && fields.contains(field);
+        return isMsgField(HEADER_ID, field);
     }
 
     /**
@@ -283,23 +289,11 @@ public class DataDictionary {
      * @return true if field is a trailer field, false otherwise.
      */
     public boolean isTrailerField(int field) {
-        Set<Integer> fields = messageFields.get(TRAILER_ID);
-        return fields != null && fields.contains(field);
+        return isMsgField(TRAILER_ID, field);
     }
 
     private void addFieldType(int field, FieldType fieldType) {
         fieldTypes.put(field, fieldType);
-    }
-
-    /**
-     * Get the field type for a field.
-     *
-     * @param field a tag
-     * @return the field type
-     * @see #getFieldTypeEnum
-     */
-    public int getFieldType(int field) {
-        return getFieldTypeEnum(field).getOrdinal();
     }
 
     /**
@@ -314,12 +308,7 @@ public class DataDictionary {
     }
 
     private void addRequiredField(String msgType, int field) {
-        Set<Integer> fields = requiredFields.get(msgType);
-        if (fields == null) {
-            fields = new HashSet<Integer>();
-            requiredFields.put(msgType, fields);
-        }
-        fields.add(field);
+        requiredFields.computeIfAbsent(msgType, k -> new HashSet<>()).add(field);
     }
 
     /**
@@ -355,12 +344,7 @@ public class DataDictionary {
     }
 
     private void addFieldValue(int field, String value) {
-        Set<String> values = fieldValues.get(field);
-        if (values == null) {
-            values = new HashSet<String>();
-            fieldValues.put(field, values);
-        }
-        values.add(value);
+        fieldValues.computeIfAbsent(field, k -> new HashSet<>()).add(value);
     }
 
     /**
@@ -407,7 +391,7 @@ public class DataDictionary {
     }
 
     private void addGroup(String msg, int field, int delim, DataDictionary dataDictionary) {
-        groups.put(new IntStringPair(field, msg), new GroupInfo(delim, dataDictionary));
+        groups.put(msg, field, new GroupInfo(delim, dataDictionary));
     }
 
     /**
@@ -419,7 +403,7 @@ public class DataDictionary {
      * @return true if field starts a repeating group, false otherwise
      */
     public boolean isGroup(String msg, int field) {
-        return groups.containsKey(new IntStringPair(field, msg));
+        return groups.contains(msg, field);
     }
 
     /**
@@ -429,7 +413,7 @@ public class DataDictionary {
      * @return true if field starts a repeating group, false otherwise
      */
     public boolean isHeaderGroup(int field) {
-        return groups.containsKey(new IntStringPair(field, HEADER_ID));
+        return groups.contains(HEADER_ID, field);
     }
 
     /**
@@ -440,7 +424,7 @@ public class DataDictionary {
      * @return an object containing group-related metadata
      */
     public GroupInfo getGroup(String msg, int field) {
-        return groups.get(new IntStringPair(field, msg));
+        return groups.get(msg, field);
     }
 
     /**
@@ -450,11 +434,13 @@ public class DataDictionary {
      * @return true if field is a raw data field, false otherwise
      */
     public boolean isDataField(int field) {
-        return fieldTypes.get(field) == FieldType.Data;
+        return fieldTypes.get(field) == FieldType.DATA;
     }
 
     private boolean isMultipleValueStringField(int field) {
-        return fieldTypes.get(field) == FieldType.MultipleValueString;
+        final FieldType fieldType = fieldTypes.get(field);
+        return fieldType == FieldType.MULTIPLEVALUESTRING || fieldType == FieldType.MULTIPLESTRINGVALUE ||
+               fieldType == FieldType.MULTIPLECHARVALUE;
     }
 
     /**
@@ -493,8 +479,10 @@ public class DataDictionary {
      */
     public void setCheckUnorderedGroupFields(boolean flag) {
         checkUnorderedGroupFields = flag;
-        for (GroupInfo gi : groups.values()) {
-            gi.getDataDictionary().setCheckUnorderedGroupFields(flag);
+        for (Map<Integer, GroupInfo> gm : groups.values()) {
+            for (GroupInfo gi : gm.values()) {
+                gi.getDataDictionary().setCheckUnorderedGroupFields(flag);
+            }
         }
     }
 
@@ -505,8 +493,10 @@ public class DataDictionary {
      */
     public void setCheckFieldsHaveValues(boolean flag) {
         checkFieldsHaveValues = flag;
-        for (GroupInfo gi : groups.values()) {
-            gi.getDataDictionary().setCheckFieldsHaveValues(flag);
+        for (Map<Integer, GroupInfo> gm : groups.values()) {
+            for (GroupInfo gi : gm.values()) {
+                gi.getDataDictionary().setCheckFieldsHaveValues(flag);
+            }
         }
     }
 
@@ -517,26 +507,25 @@ public class DataDictionary {
      */
     public void setCheckUserDefinedFields(boolean flag) {
         checkUserDefinedFields = flag;
-        for (GroupInfo gi : groups.values()) {
-            gi.getDataDictionary().setCheckUserDefinedFields(flag);
+        for (Map<Integer, GroupInfo> gm : groups.values()) {
+            for (GroupInfo gi : gm.values()) {
+                gi.getDataDictionary().setCheckUserDefinedFields(flag);
+            }
         }
     }
 
     public void setAllowUnknownMessageFields(boolean allowUnknownFields) {
         allowUnknownMessageFields = allowUnknownFields;
-        for (GroupInfo gi : groups.values()) {
-            gi.getDataDictionary().setAllowUnknownMessageFields(allowUnknownFields);
+        for (Map<Integer, GroupInfo> gm : groups.values()) {
+            for (GroupInfo gi : gm.values()) {
+                gi.getDataDictionary().setAllowUnknownMessageFields(allowUnknownFields);
+            }
         }
     }
 
     private void copyFrom(DataDictionary rhs) {
         hasVersion = rhs.hasVersion;
         beginString = rhs.beginString;
-        checkFieldsOutOfOrder = rhs.checkFieldsOutOfOrder;
-        checkFieldsHaveValues = rhs.checkFieldsHaveValues;
-        checkUserDefinedFields = rhs.checkUserDefinedFields;
-        checkUnorderedGroupFields = rhs.checkUnorderedGroupFields;
-        allowUnknownMessageFields = rhs.allowUnknownMessageFields;
 
         copyMap(messageFields, rhs.messageFields);
         copyMap(requiredFields, rhs.requiredFields);
@@ -547,12 +536,20 @@ public class DataDictionary {
         copyMap(fieldNames, rhs.fieldNames);
         copyMap(names, rhs.names);
         copyMap(valueNames, rhs.valueNames);
-        copyMap(groups, rhs.groups);
+        copyGroups(groups, rhs.groups);
         copyMap(components, rhs.components);
+
+        setCheckFieldsOutOfOrder(rhs.checkFieldsOutOfOrder);
+        setCheckFieldsHaveValues(rhs.checkFieldsHaveValues);
+        setCheckUserDefinedFields(rhs.checkUserDefinedFields);
+        setCheckUnorderedGroupFields(rhs.checkUnorderedGroupFields);
+        setAllowUnknownMessageFields(rhs.allowUnknownMessageFields);
+
+        calculateOrderedFields();
     }
 
     @SuppressWarnings("unchecked")
-    private <K, V> void copyMap(Map<K, V> lhs, Map<K, V> rhs) {
+    private static <K, V> void copyMap(Map<K, V> lhs, Map<K, V> rhs) {
         lhs.clear();
         for (Map.Entry<K, V> entry : rhs.entrySet()) {
             Object value = entry.getValue();
@@ -562,7 +559,7 @@ public class DataDictionary {
                     copy = (Collection<V>) value.getClass().newInstance();
                 } catch (final RuntimeException e) {
                     throw e;
-                } catch (final java.lang.Exception e) {
+                } catch (final Exception e) {
                     throw new RuntimeException(e);
                 }
                 copyCollection(copy, (Collection<V>) value);
@@ -572,18 +569,34 @@ public class DataDictionary {
         }
     }
 
-    private <V> void copyCollection(Collection<V> lhs, Collection<V> rhs) {
+    /** copy groups including their data dictionaries and validation settings
+     *
+     * @param lhs target
+     * @param rhs source
+     */
+    private static void copyGroups(StringIntegerMap<GroupInfo> lhs, StringIntegerMap<GroupInfo> rhs) {
+        lhs.clear();
+        for (Map.Entry<String, Map<Integer, GroupInfo>> outer : rhs.entrySet()) {
+            for (Map.Entry<Integer, GroupInfo> entry : outer.getValue().entrySet()) {
+                GroupInfo value = new GroupInfo(entry.getValue().getDelimiterField(),
+                        new DataDictionary(entry.getValue().getDataDictionary()));
+                lhs.put(outer.getKey(), entry.getKey(), value);
+            }
+        }
+    }
+
+    private static <V> void copyCollection(Collection<V> lhs, Collection<V> rhs) {
         lhs.clear();
         lhs.addAll(rhs);
     }
 
     /**
-     * Validate a mesasge, including the header and trailer fields.
+     * Validate a message, including the header and trailer fields.
      *
      * @param message the message
      * @throws IncorrectTagValue if a field value is not valid
      * @throws FieldNotFound if a field cannot be found
-     * @throws IncorrectDataFormat
+     * @throws IncorrectDataFormat if a field value has a wrong data type
      */
     public void validate(Message message) throws IncorrectTagValue, FieldNotFound,
             IncorrectDataFormat {
@@ -597,7 +610,7 @@ public class DataDictionary {
      * @param bodyOnly whether to validate just the message body, or to validate the header and trailer sections as well.
      * @throws IncorrectTagValue if a field value is not valid
      * @throws FieldNotFound if a field cannot be found
-     * @throws IncorrectDataFormat
+     * @throws IncorrectDataFormat if a field value has a wrong data type
      */
     public void validate(Message message, boolean bodyOnly) throws IncorrectTagValue,
             FieldNotFound, IncorrectDataFormat {
@@ -654,11 +667,8 @@ public class DataDictionary {
                 checkValue(field);
             }
 
-            if (beginString != null && shouldCheckTag(field)) {
-                dd.checkValidTagNumber(field);
-                if (map instanceof Message) {
-                    checkIsInMessage(field, msgType);
-                }
+            if (beginString != null) {
+                dd.checkField(field, msgType, map instanceof Message);
                 dd.checkGroupCount(field, map, msgType);
             }
         }
@@ -671,82 +681,101 @@ public class DataDictionary {
         }
     }
 
-    // / Check if message type is defined in spec.
+    /** Check if message type is defined in spec. **/
     private void checkMsgType(String msgType) {
         if (!isMsgType(msgType)) {
-            // It would be better to include the msgType in exception message
-            // Doing that will break acceptance tests
-            throw new FieldException(SessionRejectReason.INVALID_MSGTYPE);
+            throw new FieldException(SessionRejectReason.INVALID_MSGTYPE, MsgType.FIELD);
         }
     }
 
-    // / If we need to check for the tag in the dictionary
-    private boolean shouldCheckTag(Field<?> field) {
-        return checkUserDefinedFields || field.getField() < USER_DEFINED_TAG_MIN;
-    }
-
-    // / Check if field tag number is defined in spec.
+    /** Check if field tag number is defined in spec. **/
     void checkValidTagNumber(Field<?> field) {
-        if (!fields.contains(Integer.valueOf(field.getTag()))) {
+        if (!fields.contains(field.getTag())) {
             throw new FieldException(SessionRejectReason.INVALID_TAG_NUMBER, field.getField());
         }
     }
 
+    /** Check if field tag is defined for message or group **/
+    void checkField(Field<?> field, String msgType, boolean message) {
+        // use different validation for groups and messages
+        boolean messageField = message ? isMsgField(msgType, field.getField()) : fields.contains(field.getField());
+        boolean fail = checkFieldFailure(field.getField(), messageField);
+
+        if (fail) {
+            if (fields.contains(field.getField())) {
+                throw new FieldException(SessionRejectReason.TAG_NOT_DEFINED_FOR_THIS_MESSAGE_TYPE, field.getField());
+            } else {
+                throw new FieldException(SessionRejectReason.INVALID_TAG_NUMBER, field.getField());
+            }
+        }
+    }
+
+    boolean checkFieldFailure(int field, boolean messageField) {
+        boolean fail;
+        if (field < USER_DEFINED_TAG_MIN) {
+            fail = !messageField && !allowUnknownMessageFields;
+        } else {
+            fail = !messageField && checkUserDefinedFields;
+        }
+        return fail;
+    }
+
     private void checkValidFormat(StringField field) throws IncorrectDataFormat {
+        FieldType fieldType = getFieldType(field.getTag());
+        if (fieldType == null) {
+            return;
+        }
+        if (!checkFieldsHaveValues && field.getValue().length() == 0) {
+            return;
+        }
         try {
-            final FieldType fieldType = getFieldTypeEnum(field.getTag());
-            if (fieldType == FieldType.String) {
-                // String
-            } else if (fieldType == FieldType.Char) {
-                if (beginString.compareTo(FixVersions.BEGINSTRING_FIX41) > 0) {
-                    CharConverter.convert(field.getValue());
-                } else {
-                    // String, for older FIX versions
-                }
-            } else if (fieldType == FieldType.Price) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Int) {
-                IntConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Amt) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Qty) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Qty) {
-                // String
-            } else if (fieldType == FieldType.MultipleValueString) {
-                // String
-            } else if (fieldType == FieldType.Exchange) {
-                // String
-            } else if (fieldType == FieldType.Boolean) {
-                BooleanConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.LocalMktDate) {
-                // String
-            } else if (fieldType == FieldType.Data) {
-                // String
-            } else if (fieldType == FieldType.Float) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.PriceOffset) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.MonthYear) {
-                // String
-            } else if (fieldType == FieldType.DayOfMonth) {
-                // String
-            } else if (fieldType == FieldType.UtcDate) {
-                UtcDateOnlyConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.UtcTimeOnly) {
-                UtcTimeOnlyConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.UtcTimeStamp || fieldType == FieldType.Time) {
-                UtcTimestampConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.NumInGroup) {
-                IntConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Percentage) {
-                DoubleConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.SeqNum) {
-                IntConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Length) {
-                IntConverter.convert(field.getValue());
-            } else if (fieldType == FieldType.Country) {
-                // String
+            switch (fieldType) {
+                case STRING:
+                case MULTIPLEVALUESTRING:
+                case MULTIPLESTRINGVALUE:
+                case EXCHANGE:
+                case LOCALMKTDATE:
+                case DATA:
+                case MONTHYEAR:
+                case DAYOFMONTH:
+                case COUNTRY:
+                    // String
+                    break;
+                case MULTIPLECHARVALUE:
+                    CharArrayConverter.convert(field.getValue());
+                    break;
+                case INT:
+                case NUMINGROUP:
+                case SEQNUM:
+                case LENGTH:
+                    IntConverter.convert(field.getValue());
+                    break;
+                case PRICE:
+                case AMT:
+                case QTY:
+                case FLOAT:
+                case PRICEOFFSET:
+                case PERCENTAGE:
+                    DoubleConverter.convert(field.getValue());
+                    break;
+                case BOOLEAN:
+                    BooleanConverter.convert(field.getValue());
+                    break;
+                case UTCDATE:
+                    UtcDateOnlyConverter.convert(field.getValue());
+                    break;
+                case UTCTIMEONLY:
+                    UtcTimeOnlyConverter.convert(field.getValue());
+                    break;
+                case UTCTIMESTAMP:
+                case TIME:
+                    UtcTimestampConverter.convert(field.getValue());
+                    break;
+                case CHAR:
+                    if (beginString.compareTo(FixVersions.BEGINSTRING_FIX41) > 0) {
+                        CharConverter.convert(field.getValue());
+                    } // otherwise it's a String, for older FIX versions
+                    break;
             }
         } catch (final FieldConvertError e) {
             throw new IncorrectDataFormat(field.getTag(), field.getValue());
@@ -754,18 +783,13 @@ public class DataDictionary {
     }
 
     private void checkValue(StringField field) throws IncorrectTagValue {
-        final int tag = field.getField();
-        if (!hasFieldValue(tag)) {
-            return;
-        }
-
-        final String value = field.getValue();
-        if (!isFieldValue(tag, value)) {
+        int tag = field.getField();
+        if (hasFieldValue(tag) && !isFieldValue(tag, field.getValue())) {
             throw new IncorrectTagValue(tag);
         }
     }
 
-    // / Check if a field has a value.
+    /** Check if a field has a value. **/
     private void checkHasValue(StringField field) {
         if (checkFieldsHaveValues && field.getValue().length() == 0) {
             throw new FieldException(SessionRejectReason.TAG_SPECIFIED_WITHOUT_A_VALUE,
@@ -773,15 +797,7 @@ public class DataDictionary {
         }
     }
 
-    // / Check if a field is in this message type.
-    private void checkIsInMessage(Field<?> field, String msgType) {
-        if (!isMsgField(msgType, field.getField()) && !allowUnknownMessageFields) {
-            throw new FieldException(SessionRejectReason.TAG_NOT_DEFINED_FOR_THIS_MESSAGE_TYPE,
-                    field.getField());
-        }
-    }
-
-    // / Check if group count matches number of groups in
+    /** Check if group count matches number of groups in **/
     private void checkGroupCount(StringField field, FieldMap fieldMap, String msgType) {
         final int fieldNum = field.getField();
         if (isGroup(msgType, fieldNum)) {
@@ -793,7 +809,7 @@ public class DataDictionary {
         }
     }
 
-    // / Check if a message has all required fields.
+    /** Check if a message has all required fields. **/
     void checkHasRequired(FieldMap header, FieldMap body, FieldMap trailer, String msgType,
             boolean bodyOnly) {
         if (!bodyOnly) {
@@ -830,16 +846,28 @@ public class DataDictionary {
         }
     }
 
+    private int countElementNodes(NodeList nodes) {
+        int elementNodesCount = 0;
+
+        for (int i = 0; i < nodes.getLength(); i++) {
+            if (nodes.item(i).getNodeType() == Node.ELEMENT_NODE) {
+                elementNodesCount++;
+            }
+        }
+
+        return elementNodesCount;
+    }
+
     private void read(String location) throws ConfigError {
         final InputStream inputStream = FileUtil.open(getClass(), location, URL, FILESYSTEM,
                 CONTEXT_RESOURCE, CLASSLOADER_RESOURCE);
         if (inputStream == null) {
-            throw new DataDictionary.Exception("Could not find data dictionary: " + location);
+            throw new ConfigError("Could not find data dictionary: " + location);
         }
 
         try {
             load(inputStream);
-        } catch (final java.lang.Exception e) {
+        } catch (final Exception e) {
             throw new ConfigError(location + ": " + e.getMessage(), e);
         } finally {
             try {
@@ -852,6 +880,8 @@ public class DataDictionary {
 
     private void load(InputStream inputStream) throws ConfigError {
         final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
         Document document;
         try {
             final DocumentBuilder builder = factory.newDocumentBuilder();
@@ -903,7 +933,7 @@ public class DataDictionary {
         }
 
         final NodeList fieldNodes = fieldsNode.item(0).getChildNodes();
-        if (fieldNodes.getLength() == 0) {
+        if (countElementNodes(fieldNodes) == 0) {
             throw new ConfigError("No fields defined");
         }
 
@@ -950,7 +980,7 @@ public class DataDictionary {
 
                 if (fieldValues.containsKey(num)) {
                     final String allowOtherValues = getAttribute(fieldNode, "allowOtherValues");
-                    if (allowOtherValues != null && Boolean.parseBoolean(allowOtherValues)) {
+                    if (Boolean.parseBoolean(allowOtherValues)) {
                         addFieldValue(num, ANY_VALUE);
                     }
                 }
@@ -982,7 +1012,7 @@ public class DataDictionary {
         }
 
         final NodeList messageNodes = messagesNode.item(0).getChildNodes();
-        if (messageNodes.getLength() == 0) {
+        if (countElementNodes(messageNodes) == 0) {
             throw new ConfigError("No messages defined");
         }
 
@@ -1009,6 +1039,8 @@ public class DataDictionary {
                 load(document, msgtype, messageNode);
             }
         }
+
+        calculateOrderedFields();
     }
 
     public int getNumMessageCategories() {
@@ -1018,7 +1050,7 @@ public class DataDictionary {
     private void load(Document document, String msgtype, Node node) throws ConfigError {
         String name;
         final NodeList fieldNodes = node.getChildNodes();
-        if (fieldNodes.getLength() == 0) {
+        if (countElementNodes(fieldNodes) == 0) {
             throw new ConfigError("No fields found: msgType=" + msgtype);
         }
 
@@ -1061,20 +1093,22 @@ public class DataDictionary {
         }
     }
 
-    private int[] orderedFieldsArray;
-
     public int[] getOrderedFields() {
-        if (orderedFieldsArray == null) {
-            orderedFieldsArray = new int[fields.size()];
+        return orderedFieldsArray;
+    }
 
-            final Iterator<Integer> fieldItr = fields.iterator();
-            int i = 0;
-            while (fieldItr.hasNext()) {
-                orderedFieldsArray[i++] = fieldItr.next();
-            }
+    private void calculateOrderedFields() {
+        orderedFieldsArray = new int[fields.size()];
+        int i = 0;
+        for (Integer field : fields) {
+            orderedFieldsArray[i++] = field;
         }
 
-        return orderedFieldsArray;
+        for (Map<Integer, GroupInfo> gm : groups.values()) {
+            for (GroupInfo gi : gm.values()) {
+                gi.dataDictionary.calculateOrderedFields();
+            }
+        }
     }
 
     private int lookupXMLFieldNumber(Document document, Node node) throws ConfigError {
@@ -1125,7 +1159,7 @@ public class DataDictionary {
 
                 final String required = getAttribute(componentFieldNode, "required");
                 if (required.equalsIgnoreCase("Y") && componentRequired) {
-                    addRequiredField(msgtype, field);
+                    dd.addRequiredField(msgtype, field);
                 }
 
                 dd.addField(field);
@@ -1168,7 +1202,9 @@ public class DataDictionary {
                     groupDD.addRequiredField(msgtype, field);
                 }
             } else if (fieldNode.getNodeName().equals("component")) {
-                field = addXMLComponentFields(document, fieldNode, msgtype, groupDD, false);
+                final String required = getAttribute(fieldNode, "required");
+                final boolean isRequired = required != null && required.equalsIgnoreCase("Y");
+                field = addXMLComponentFields(document, fieldNode, msgtype, groupDD, isRequired);
             } else if (fieldNode.getNodeName().equals("group")) {
                 field = lookupXMLFieldNumber(document, fieldNode);
                 groupDD.addField(field);
@@ -1202,58 +1238,54 @@ public class DataDictionary {
         return defaultValue;
     }
 
-    /**
-     * Data dictionary-related exception.
-     */
-    public static class Exception extends RuntimeException {
+    private static class StringIntegerMap<V> extends HashMap<String, Map<Integer, V>> {
 
-        public Exception(Throwable cause) {
-            super(cause);
+        public boolean contains(String group, int field) {
+            Map<Integer, V> map = get(group);
+            return map != null && map.containsKey(field);
         }
 
-        public Exception(String message) {
-            super(message);
+        public V get(String group, int field) {
+            Map<Integer, V> map = get(group);
+            return map == null ? null : map.get(field);
         }
+
+        public void put(String group, int field, V value) {
+            computeIfAbsent(group, __ -> new HashMap<>())
+                    .put(field, value);
+        }
+
     }
 
-    private static final class IntStringPair {
-        private final int intValue;
+    private static class IntegerStringMap<V> extends HashMap<Integer, Map<String, V>> {
 
-        private final String stringValue;
-
-        public IntStringPair(int value, String value2) {
-            intValue = value;
-            stringValue = value2;
+        public boolean contains(int field, String group) {
+            Map<String, V> map = get(field);
+            return map != null && map.containsKey(group);
         }
 
-        //public int getIntValue() {
-        //    return intValue;
-        //}
-
-        //public String getStringValue() {
-        //    return stringValue;
-        //}
-
-        @Override
-        public boolean equals(Object other) {
-            return this == other
-                    || other instanceof IntStringPair
-                       && intValue == ((IntStringPair) other).intValue
-                       && stringValue.equals(((IntStringPair) other).stringValue);
+        public V get(int field, String group) {
+            Map<String, V> map = get(field);
+            return map == null ? null : map.get(group);
         }
 
-        @Override
-        public int hashCode() {
-            return stringValue.hashCode() + intValue;
+        public String getValue(int field, String name) {
+            Map<String, V> map = get(field);
+            if (map != null) {
+                for (Entry<String, V> entry : map.entrySet()) {
+                    if (entry.getValue().equals(name)) {
+                        return entry.getKey();
+                    }
+                }
+            }
+            return null;
         }
 
-        /**
-         * For debugging
-         */
-        @Override
-        public String toString() {
-            return new StringBuilder('(').append(intValue).append(',').append(stringValue).append(')').toString();
+        public void put(int field, String group, V value) {
+            computeIfAbsent(field, __ -> new HashMap<>())
+                    .put(group, value);
         }
+
     }
 
     /**
@@ -1271,17 +1303,6 @@ public class DataDictionary {
 
         public DataDictionary getDataDictionary() {
             return dataDictionary;
-        }
-
-        /**
-         * Returns the delimiter field used to start a repeating group instance.
-         *
-         * @return delimiter field
-         * @deprecated use getDelimiterField() instead
-         */
-        @Deprecated
-        public int getDelimeterField() {
-            return delimiterField;
         }
 
         /**

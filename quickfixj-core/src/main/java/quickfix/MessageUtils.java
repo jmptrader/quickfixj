@@ -19,13 +19,8 @@
 
 package quickfix;
 
-import java.nio.charset.Charset;
-import java.util.HashMap;
-import java.util.Map;
-
 import org.quickfixj.CharsetSupport;
 import org.quickfixj.QFJException;
-
 import quickfix.Message.Header;
 import quickfix.field.ApplVerID;
 import quickfix.field.BeginString;
@@ -37,6 +32,10 @@ import quickfix.field.SenderSubID;
 import quickfix.field.TargetCompID;
 import quickfix.field.TargetLocationID;
 import quickfix.field.TargetSubID;
+
+import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MessageUtils {
 
@@ -91,8 +90,13 @@ public class MessageUtils {
         }
     }
 
+    public static Message parse(MessageFactory messageFactory, DataDictionary dataDictionary,
+            String messageString) throws InvalidMessage {
+        return parse(messageFactory, dataDictionary, messageString, true);
+    }
+
     /**
-     * Utility method for parsing a mesasge. This should only be used for parsing messages from
+     * Utility method for parsing a message. This should only be used for parsing messages from
      * FIX versions 4.4 or earlier.
      *
      * @param messageFactory
@@ -102,7 +106,7 @@ public class MessageUtils {
      * @throws InvalidMessage
      */
     public static Message parse(MessageFactory messageFactory, DataDictionary dataDictionary,
-            String messageString) throws InvalidMessage {
+            String messageString, boolean validateChecksum) throws InvalidMessage {
         final int index = messageString.indexOf(FIELD_SEPARATOR);
         if (index < 0) {
             throw new InvalidMessage("Message does not contain any field separator");
@@ -110,7 +114,7 @@ public class MessageUtils {
         final String beginString = messageString.substring(2, index);
         final String messageType = getMessageType(messageString);
         final quickfix.Message message = messageFactory.create(beginString, messageType);
-        message.fromString(messageString, dataDictionary, dataDictionary != null);
+        message.fromString(messageString, dataDictionary, dataDictionary != null, validateChecksum);
         return message;
     }
 
@@ -125,30 +129,36 @@ public class MessageUtils {
     public static Message parse(Session session, String messageString) throws InvalidMessage {
         final String beginString = getStringField(messageString, BeginString.FIELD);
         final String msgType = getMessageType(messageString);
-
-        ApplVerID applVerID;
-
-        if (FixVersions.BEGINSTRING_FIXT11.equals(beginString)) {
-            applVerID = getApplVerID(session, messageString);
-        } else {
-            applVerID = toApplVerID(beginString);
-        }
-
         final MessageFactory messageFactory = session.getMessageFactory();
-
         final DataDictionaryProvider ddProvider = session.getDataDictionaryProvider();
+        final ApplVerID applVerID;
         final DataDictionary sessionDataDictionary = ddProvider == null ? null : ddProvider
                 .getSessionDataDictionary(beginString);
-        final DataDictionary applicationDataDictionary = ddProvider == null ? null : ddProvider
-                .getApplicationDataDictionary(applVerID);
+        final quickfix.Message message;
+        final DataDictionary payloadDictionary;
 
-        final quickfix.Message message = messageFactory.create(beginString, msgType);
-        final DataDictionary payloadDictionary = MessageUtils.isAdminMessage(msgType)
-                ? sessionDataDictionary
-                : applicationDataDictionary;
+        if (!isAdminMessage(msgType) || isLogon(messageString)) {
+            if (FixVersions.BEGINSTRING_FIXT11.equals(beginString)) {
+                applVerID = getApplVerID(session, messageString);
+            } else {
+                applVerID = toApplVerID(beginString);
+            }
+            final DataDictionary applicationDataDictionary = ddProvider == null ? null : ddProvider
+                    .getApplicationDataDictionary(applVerID);
+            payloadDictionary = MessageUtils.isAdminMessage(msgType)
+                    ? sessionDataDictionary
+                    : applicationDataDictionary;
+        } else {
+            applVerID = null;
+            payloadDictionary = sessionDataDictionary;
+        }
 
-        message.parse(messageString, sessionDataDictionary, payloadDictionary,
-                payloadDictionary != null);
+        final boolean doValidation = payloadDictionary != null;
+        final boolean validateChecksum = session.isValidateChecksum();
+
+        message = messageFactory.create(beginString, applVerID, msgType);
+        message.parse(messageString, sessionDataDictionary, payloadDictionary, doValidation,
+                validateChecksum);
 
         return message;
     }
@@ -175,7 +185,7 @@ public class MessageUtils {
         }
 
         if (applVerID == null) {
-            throw new InvalidMessage("Can't determine ApplVerID for message");
+            throw newInvalidMessageException("Can't determine ApplVerID from message " + messageString, getMinimalMessage(messageString));
         }
 
         return applVerID;
@@ -204,9 +214,30 @@ public class MessageUtils {
     public static String getMessageType(String messageString) throws InvalidMessage {
         final String value = getStringField(messageString, 35);
         if (value == null) {
-            throw new InvalidMessage("Missing or garbled message type in " + messageString);
+            throw newInvalidMessageException("Missing or garbled message type in " + messageString, getMinimalMessage(messageString));
         }
         return value;
+    }
+
+    /**
+     * Tries to set MsgSeqNum and MsgType from a FIX string to a new Message.
+     * These fields are referenced on the outgoing Reject message.
+     *
+     * @param messageString FIX message as String
+     * @return New quickfix.Message with optionally set header fields MsgSeqNum
+     * and MsgType.
+     */
+    static Message getMinimalMessage(String messageString) {
+        final Message tempMessage = new Message();
+        final String seqNum = getStringField(messageString, 34);
+        if (seqNum != null) {
+            tempMessage.getHeader().setString(34, seqNum);
+        }
+        final String msgType = getStringField(messageString, 35);
+        if (msgType != null) {
+            tempMessage.getHeader().setString(35, msgType);
+        }
+        return tempMessage;
     }
 
     public static String getStringField(String messageString, int tag) {
@@ -298,6 +329,27 @@ public class MessageUtils {
     /**
      * Calculates the checksum for the given data.
      *
+     * @param data the data to calculate the checksum on
+     * @param isEntireMessage specifies whether the data is an entire message;
+     *        if true, and it ends with a checksum field, that checksum
+     *        field is excluded from the current checksum calculation
+     * @return the calculated checksum
+     */
+    public static int checksum(byte[] data, boolean isEntireMessage) {
+        int sum = 0;
+        int len = data.length;
+        if (isEntireMessage && data[len - 8] == '\001' && data[len - 7] == '1'
+                && data[len - 6] == '0' && data[len - 5] == '=')
+            len = len - 7;
+        for (int i = 0; i < len; i++) {
+            sum += (data[i] & 0xFF);
+        }
+        return sum & 0xFF; // better than sum % 256 since it avoids overflow issues
+    }
+
+    /**
+     * Calculates the checksum for the given data.
+     *
      * @param charset the charset used in encoding the data
      * @param data the data to calculate the checksum on
      * @param isEntireMessage specifies whether the data is an entire message;
@@ -306,24 +358,16 @@ public class MessageUtils {
      * @return the calculated checksum
      */
     public static int checksum(Charset charset, String data, boolean isEntireMessage) {
-        int sum = 0;
-        if (CharsetSupport.isStringEquivalent(charset)) { // optimization - skip encoding
+        if (CharsetSupport.isStringEquivalent(charset)) { // optimization - skip charset encoding
+            int sum = 0;
             int end = isEntireMessage ? data.lastIndexOf("\00110=") : -1;
             int len = end > -1 ? end + 1 : data.length();
             for (int i = 0; i < len; i++) {
                 sum += data.charAt(i);
             }
-        } else {
-            byte[] bytes = data.getBytes(charset);
-            int len = bytes.length;
-            if (isEntireMessage && bytes[len - 8] == '\001' && bytes[len - 7] == '1'
-                    && bytes[len - 6] == '0' && bytes[len - 5] == '=')
-                len = len - 7;
-            for (int i = 0; i < len; i++) {
-                sum += (bytes[i] & 0xFF);
-            }
+            return sum & 0xFF; // better than sum % 256 since it avoids overflow issues
         }
-        return sum & 0xFF; // better than sum % 256 since it avoids overflow issues
+        return checksum(data.getBytes(charset), isEntireMessage);
     }
 
     /**
@@ -348,5 +392,19 @@ public class MessageUtils {
      */
     public static int length(Charset charset, String data) {
         return CharsetSupport.isStringEquivalent(charset) ? data.length() : data.getBytes(charset).length;
+    }
+    
+    /**
+     * Returns an InvalidMessage Exception with optionally attached FIX message.
+     *
+     * @param errorMessage error description
+     * @param fixMessage  problematic FIX message
+     * @return InvalidMessage Exception
+     */
+    static InvalidMessage newInvalidMessageException(String errorMessage, Message fixMessage) {
+        if (fixMessage != null) {
+            return new InvalidMessage(errorMessage, fixMessage);
+        }
+        return new InvalidMessage(errorMessage);
     }
 }

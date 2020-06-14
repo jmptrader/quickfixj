@@ -19,6 +19,27 @@
 
 package quickfix.test.acceptance;
 
+import junit.framework.TestSuite;
+import org.apache.mina.core.filterchain.IoFilterChainBuilder;
+import org.junit.Assert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import quickfix.DefaultMessageFactory;
+import quickfix.FileStoreFactory;
+import quickfix.FixVersions;
+import quickfix.MemoryStoreFactory;
+import quickfix.MessageStoreFactory;
+import quickfix.RuntimeError;
+import quickfix.SLF4JLogFactory;
+import quickfix.SessionID;
+import quickfix.SessionSettings;
+import quickfix.SocketAcceptor;
+import quickfix.ThreadedSocketAcceptor;
+import quickfix.mina.ProtocolFactory;
+import quickfix.mina.acceptor.AbstractSocketAcceptor;
+import quickfix.mina.ssl.SSLSupport;
+import quickfix.test.util.ReflectionUtil;
+
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
@@ -33,34 +54,11 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import junit.framework.Assert;
-import junit.framework.TestSuite;
-
-import org.apache.mina.core.filterchain.IoFilterChainBuilder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import quickfix.DefaultMessageFactory;
-import quickfix.FileStoreFactory;
-import quickfix.FixVersions;
-import quickfix.MemoryStoreFactory;
-import quickfix.MessageStoreFactory;
-import quickfix.RuntimeError;
-import quickfix.ScreenLogFactory;
-import quickfix.SessionID;
-import quickfix.SessionSettings;
-import quickfix.SocketAcceptor;
-import quickfix.ThreadedSocketAcceptor;
-import quickfix.mina.ProtocolFactory;
-import quickfix.mina.acceptor.AbstractSocketAcceptor;
-import quickfix.mina.ssl.SSLSupport;
-import quickfix.test.util.ReflectionUtil;
-
 public class ATServer implements Runnable {
     private final Logger log = LoggerFactory.getLogger(ATServer.class);
     private final CountDownLatch initializationLatch = new CountDownLatch(1);
     private final CountDownLatch tearDownLatch = new CountDownLatch(1);
-    private final Set<String> fixVersions = new HashSet<String>();
+    private final Set<String> fixVersions = new HashSet<>();
     private final SessionSettings settings = new SessionSettings();
     private boolean resetOnDisconnect;
     private boolean usingMemoryStore;
@@ -78,6 +76,11 @@ public class ATServer implements Runnable {
         // defaults
     }
 
+    public ATServer(int port, int transportType) {
+        this.port = port;
+        this.transportType = transportType;
+    }
+
     public ATServer(TestSuite suite, boolean threaded, int transportType, int port) {
         this(suite, threaded, transportType, port, null);
     }
@@ -92,12 +95,12 @@ public class ATServer implements Runnable {
             fixVersions.add(e.nextElement().toString().substring(0, 5));
         }
         resetOnDisconnect = true;
-        log.info("creating sessions for " + fixVersions);
+        log.info("creating sessions for {}", fixVersions);
     }
 
     public void run() {
         try {
-            HashMap<Object, Object> defaults = new HashMap<Object, Object>();
+            HashMap<Object, Object> defaults = new HashMap<>();
             defaults.put("ConnectionType", "acceptor");
             defaults.put("SocketAcceptProtocol", ProtocolFactory.getTypeString(transportType));
             defaults.put("SocketAcceptPort", Integer.toString(port));
@@ -161,7 +164,7 @@ public class ATServer implements Runnable {
                     : new FileStoreFactory(settings);
             //MessageStoreFactory factory = new JdbcStoreFactory(settings);
             //LogFactory logFactory = new CommonsLogFactory(settings);
-            quickfix.LogFactory logFactory = new ScreenLogFactory(true, true, true);
+            quickfix.LogFactory logFactory = new SLF4JLogFactory(new SessionSettings());
             //quickfix.LogFactory logFactory = new JdbcLogFactory(settings);
             if (threaded) {
                 acceptor = new ThreadedSocketAcceptor(application, factory, settings, logFactory,
@@ -177,7 +180,7 @@ public class ATServer implements Runnable {
                 acceptor.start();
             } catch (RuntimeError e) {
                 if (e.getCause() instanceof BindException) {
-                    log.warn("Acceptor port " + port + " is still bound! Waiting 60 seconds and trying again...");
+                    log.warn("Acceptor port {} is still bound! Waiting 60 seconds and trying again...", port);
                     Thread.sleep(60000);
                     acceptor.start();
                 }
@@ -196,7 +199,7 @@ public class ATServer implements Runnable {
                     final ThreadMXBean bean = ManagementFactory.getThreadMXBean();
                     long[] threadIds = bean.findDeadlockedThreads();
 
-                    final List<String> deadlockedThreads = new ArrayList<String>();
+                    final List<String> deadlockedThreads = new ArrayList<>();
                     if (threadIds != null) {
                         for (long threadId : threadIds) {
                             final ThreadInfo threadInfo = bean.getThreadInfo(threadId);
@@ -213,6 +216,7 @@ public class ATServer implements Runnable {
                 }
             } catch (InterruptedException e1) {
                 log.info("server exiting");
+                Thread.currentThread().interrupt();
             } finally {
                 shutdownLatch.countDown();
             }
@@ -225,7 +229,7 @@ public class ATServer implements Runnable {
                     acceptor.stop(true);
                 }
             } catch (RuntimeException e) {
-                e.printStackTrace();
+                log.warn("Encountered Exception on stop", e);
             } finally {
                 tearDownLatch.countDown();
             }

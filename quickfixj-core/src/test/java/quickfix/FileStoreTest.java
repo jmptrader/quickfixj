@@ -30,7 +30,7 @@ public class FileStoreTest extends AbstractMessageStoreTest {
         super.tearDown();
         FileStore fileStore = (FileStore) getStore();
         try {
-            fileStore.deleteFiles();
+            fileStore.closeAndDeleteFiles();
         } catch (IOException e) {
             System.err.println(e.getMessage());
         }
@@ -55,7 +55,7 @@ public class FileStoreTest extends AbstractMessageStoreTest {
 
         store.set(2, "MESSAGE");
 
-        List<String> messages = new ArrayList<String>();
+        List<String> messages = new ArrayList<>();
         store.get(1, 1, messages);
 
         assertEquals(0, messages.size());
@@ -84,5 +84,38 @@ public class FileStoreTest extends AbstractMessageStoreTest {
         store.initialize(false);
         Date creationTime2 = store.getCreationTime();
         assertEquals("wrong time diff", 0, Math.abs(creationTime1.getTime() - creationTime2.getTime()));
+    }
+
+    public void testResetShouldNeverFail() throws Exception {
+        final MockSystemTimeSource mockSystemTimeSource = new MockSystemTimeSource(System.currentTimeMillis());
+        SystemTime.setTimeSource(mockSystemTimeSource);
+        final FileStore store = (FileStore) getStore();
+        final Thread thread = new Thread(() -> {
+            while (true) {
+                try {
+                    store.set(0, "SettingSomething");
+                    if (Thread.interrupted()) {
+                        break;
+                    }
+                } catch (IOException e) {
+                    // it is ok for this to fail
+                }
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+
+        Date creationTime = store.getCreationTime();
+        for (int i = 0; i < 20; i++) {
+            mockSystemTimeSource.increment(1);
+            store.reset();
+            final Date newCreationTime = store.getCreationTime();
+            assertTrue(newCreationTime.after(creationTime));
+            creationTime = newCreationTime;
+        }
+        SystemTime.setTimeSource(null);
+
+        thread.interrupt();
+        thread.join();
     }
 }

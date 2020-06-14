@@ -19,9 +19,8 @@
 
 package quickfix.examples.banzai;
 
-import java.util.HashMap;
-
 import javax.swing.table.AbstractTableModel;
+import java.util.HashMap;
 
 public class ExecutionTableModel extends AbstractTableModel {
 
@@ -38,10 +37,10 @@ public class ExecutionTableModel extends AbstractTableModel {
     private final String[] headers;
 
     public ExecutionTableModel() {
-        rowToExecution = new HashMap<Integer, Execution>();
-        idToRow = new HashMap<String, Integer>();
-        idToExecution = new HashMap<String, Execution>();
-        exchangeIdToExecution = new HashMap<String, Execution>();
+        rowToExecution = new HashMap<>();
+        idToRow = new HashMap<>();
+        idToExecution = new HashMap<>();
+        exchangeIdToExecution = new HashMap<>();
 
         headers = new String[] {"Symbol", "Quantity", "Side", "Price"};
     }
@@ -69,7 +68,7 @@ public class ExecutionTableModel extends AbstractTableModel {
     }
 
     public Execution getExecution(int row) {
-        return rowToExecution.get(Integer.valueOf(row));
+        return rowToExecution.get(row);
     }
 
     public void setValueAt(Object value, int rowIndex, int columnIndex) { }
@@ -91,7 +90,7 @@ public class ExecutionTableModel extends AbstractTableModel {
     }
 
     public Object getValueAt(int rowIndex, int columnIndex) {
-        Execution execution = rowToExecution.get(Integer.valueOf(rowIndex));
+        Execution execution = rowToExecution.get(rowIndex);
 
         switch (columnIndex) {
         case SYMBOL:
